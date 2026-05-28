@@ -1,11 +1,13 @@
-[gd_scene format=3 uid="uid://cyfyfyyhx4ogt"]
+[gd_scene load_steps=3 format=3 uid="uid://cyfyfyyhx4ogt"]
 
 [ext_resource type="Script" uid="uid://cdkr4oiv05me2" path="res://scripts/player.gd" id="1_player"]
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 
 [sub_resource type="RectangleShape2D" id="RectangleShape2D_player"]
 size = Vector2(36, 36)
 
 [node name="Main" type="Node2D" unique_id=534128523]
+script = ExtResource("1_main")
 
 [node name="Background" type="ColorRect" parent="." unique_id=1459880758]
 offset_right = 1920.0
@@ -18,6 +20,14 @@ offset_top = 100.0
 offset_right = 1760.0
 offset_bottom = 980.0
 color = Color(0.12, 0.13, 0.15, 1)
+
+[node name="Walls" type="Node2D" parent="."]
+
+[node name="Enemies" type="Node2D" parent="."]
+
+[node name="Bullets" type="Node2D" parent="."]
+
+[node name="Doors" type="Node2D" parent="."]
 
 [node name="Player" type="CharacterBody2D" parent="." unique_id=230813088]
 position = Vector2(960, 540)
@@ -34,3 +44,21 @@ color = Color(0.94, 0.75, 0.24, 1)
 shape = SubResource("RectangleShape2D_player")
 
 [node name="Camera2D" type="Camera2D" parent="Player" unique_id=1086544583]
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="HUD" type="Label" parent="CanvasLayer"]
+offset_left = 32.0
+offset_top = 28.0
+offset_right = 620.0
+offset_bottom = 68.0
+theme_override_font_sizes/font_size = 28
+text = "HP 3 / 妖 4 / 攻击 READY"
+
+[node name="Objective" type="Label" parent="CanvasLayer"]
+offset_left = 32.0
+offset_top = 76.0
+offset_right = 900.0
+offset_bottom = 116.0
+theme_override_font_sizes/font_size = 24
+text = "当前目标：清掉妖怪，开启传送门"
