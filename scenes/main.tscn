@@ -137,6 +137,57 @@ theme_override_colors/font_color = Color(0.83, 0.87, 0.9, 1)
 theme_override_font_sizes/font_size = 26
 text = "封印中"
 
+[node name="RoomInfoPanel" type="ColorRect" parent="CanvasLayer"]
+offset_left = 1368.0
+offset_top = 128.0
+offset_right = 1890.0
+offset_bottom = 298.0
+color = Color(0.03, 0.035, 0.045, 0.86)
+
+[node name="RoomInfoAccent" type="ColorRect" parent="CanvasLayer"]
+offset_left = 1368.0
+offset_top = 128.0
+offset_right = 1890.0
+offset_bottom = 134.0
+color = Color(0.74, 0.56, 0.24, 1)
+
+[node name="RoomTitle" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 142.0
+offset_right = 1872.0
+offset_bottom = 174.0
+theme_override_colors/font_color = Color(0.95, 0.87, 0.72, 1)
+theme_override_font_sizes/font_size = 24
+text = "试炼：火焰山"
+
+[node name="RoomProgress" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 174.0
+offset_right = 1872.0
+offset_bottom = 202.0
+theme_override_colors/font_color = Color(0.77, 0.84, 0.9, 1)
+theme_override_font_sizes/font_size = 18
+text = "进度 1 / 3"
+
+[node name="RoomHint" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 202.0
+offset_right = 1872.0
+offset_bottom = 232.0
+theme_override_colors/font_color = Color(0.83, 0.9, 0.86, 1)
+theme_override_font_sizes/font_size = 17
+text = "说明：清空妖怪，破除封印。"
+
+[node name="RoomLore" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 234.0
+offset_right = 1872.0
+offset_bottom = 292.0
+theme_override_colors/font_color = Color(0.72, 0.78, 0.8, 1)
+theme_override_font_sizes/font_size = 15
+text = "短句：风火炼心，行者不退。"
+autowrap_mode = 3
+
 [node name="StartOverlay" type="ColorRect" parent="CanvasLayer"]
 offset_right = 1920.0
 offset_bottom = 1080.0

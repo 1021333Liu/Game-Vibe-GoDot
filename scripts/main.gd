@@ -32,6 +32,7 @@ var room_complete := false
 var run_complete := false
 var current_room_index := 0
 var room_templates: Array[Dictionary] = []
+var room_pools: Dictionary = {}
 var started := false
 var paused := false
 var shot_meter_fill: ColorRect
@@ -50,15 +51,23 @@ var shot_meter_fill: ColorRect
 @onready var hud_accent: ColorRect = $CanvasLayer/HUDAccent
 @onready var objective_panel: ColorRect = $CanvasLayer/ObjectivePanel
 @onready var door_status_accent: ColorRect = $CanvasLayer/DoorStatusAccent
+@onready var room_info_panel: ColorRect = $CanvasLayer/RoomInfoPanel
+@onready var room_info_accent: ColorRect = $CanvasLayer/RoomInfoAccent
+@onready var room_title_label: Label = $CanvasLayer/RoomTitle
+@onready var room_progress_label: Label = $CanvasLayer/RoomProgress
+@onready var room_hint_label: Label = $CanvasLayer/RoomHint
+@onready var room_lore_label: Label = $CanvasLayer/RoomLore
 @onready var start_overlay: ColorRect = $CanvasLayer/StartOverlay
 @onready var pause_overlay: ColorRect = $CanvasLayer/PauseOverlay
 
 func _ready() -> void:
+	randomize()
 	player.room_min = ROOM_MIN
 	player.room_max = ROOM_MAX
 	player.hurt.connect(_on_player_hurt)
 	_draw_room_border()
-	room_templates = _build_room_templates()
+	room_pools = _build_room_pools()
+	room_templates = _build_room_route()
 	_spawn_shot_meter()
 	_load_room(0, true)
 	_set_ui_running_state(false)
@@ -283,7 +292,7 @@ func _check_door_contact() -> void:
 			if next_room_index >= room_templates.size():
 				run_complete = true
 				ended = true
-				_show_room_message("三间试炼已通关：按 R 重开", 999.0)
+				_show_room_message("%d 房路线已通关：按 R 重开" % room_templates.size(), 999.0)
 			else:
 				_load_room(next_room_index, false)
 
@@ -369,57 +378,183 @@ func _clear_node_children(node: Node) -> void:
 	for child in node.get_children():
 		child.queue_free()
 
-func _build_room_templates() -> Array[Dictionary]:
-	return [
-		{
-			"id": "combat",
-			"name": "普通战斗",
-			"walls": [
-				Rect2(470, 210, 260, 48),
-				Rect2(470, 810, 260, 48),
-				Rect2(1190, 210, 260, 48),
-				Rect2(1190, 810, 260, 48),
-				Rect2(890, 440, 140, 200),
-			],
-			"enemies": [
-				{ "position": Vector2(360, 250), "velocity": Vector2(1, 0.75), "hp": 1 },
-				{ "position": Vector2(1450, 280), "velocity": Vector2(-0.8, 1), "hp": 1 },
-				{ "position": Vector2(420, 760), "velocity": Vector2(1, -0.9), "hp": 1 },
-				{ "position": Vector2(1420, 760), "velocity": Vector2(-1, -0.72), "hp": 2 },
-			],
-		},
-		{
-			"id": "elite",
-			"name": "精英房",
-			"walls": [
-				Rect2(360, 300, 220, 44),
-				Rect2(360, 720, 220, 44),
-				Rect2(1340, 300, 220, 44),
-				Rect2(1340, 720, 220, 44),
-				Rect2(840, 300, 240, 56),
-				Rect2(840, 724, 240, 56),
-			],
-			"enemies": [
-				{ "position": Vector2(960, 520), "velocity": Vector2(1, 0.4), "hp": 4 },
-				{ "position": Vector2(560, 500), "velocity": Vector2(1, -0.7), "hp": 1 },
-				{ "position": Vector2(1320, 520), "velocity": Vector2(-1, 0.75), "hp": 1 },
-			],
-		},
-		{
-			"id": "rest",
-			"name": "宝物休整",
-			"walls": [
-				Rect2(620, 300, 120, 40),
-				Rect2(1180, 300, 120, 40),
-				Rect2(620, 740, 120, 40),
-				Rect2(1180, 740, 120, 40),
-			],
-			"enemies": [],
-		},
-	]
+func _clone_room_template(room_template: Dictionary) -> Dictionary:
+	return {
+		"id": room_template.id,
+		"name": room_template.name,
+		"hint": room_template.hint if room_template.has("hint") else "",
+		"lore": room_template.lore if room_template.has("lore") else "",
+		"walls": room_template.walls.duplicate(true),
+		"enemies": room_template.enemies.duplicate(true),
+		"type": room_template.type,
+	}
+
+func _pick_room_from_pool(pool: Array, avoid_id: String = "") -> Dictionary:
+	if pool.is_empty():
+		return {}
+	var picked: Dictionary = pool[randi() % pool.size()]
+	if pool.size() > 1 and avoid_id != "":
+		var guard := 0
+		while picked.id == avoid_id and guard < 6:
+			picked = pool[randi() % pool.size()]
+			guard += 1
+	return _clone_room_template(picked)
+
+func _build_room_pools() -> Dictionary:
+	return {
+		"combat": [
+			{
+				"id": "combat_bridge",
+				"hint": "清怪破印，稳住推进",
+				"lore": "黄沙扑地，风声催人快行",
+				"name": "流沙河浅滩",
+				"type": "combat",
+				"walls": [
+					Rect2(470, 210, 260, 48),
+					Rect2(470, 810, 260, 48),
+					Rect2(1190, 210, 260, 48),
+					Rect2(1190, 810, 260, 48),
+					Rect2(890, 440, 140, 200),
+				],
+				"enemies": [
+					{ "position": Vector2(360, 250), "velocity": Vector2(1, 0.75), "hp": 1 },
+					{ "position": Vector2(1450, 280), "velocity": Vector2(-0.8, 1), "hp": 1 },
+					{ "position": Vector2(420, 760), "velocity": Vector2(1, -0.9), "hp": 1 },
+					{ "position": Vector2(1420, 760), "velocity": Vector2(-1, -0.72), "hp": 2 },
+				],
+			},
+			{
+				"id": "combat_bone",
+				"hint": "绕开夹击，逐个击破",
+				"lore": "残碑无言，阴火仍在摇曳",
+				"name": "白骨岭荒庭",
+				"type": "combat",
+				"walls": [
+					Rect2(520, 250, 190, 42),
+					Rect2(1210, 250, 190, 42),
+					Rect2(520, 788, 190, 42),
+					Rect2(1210, 788, 190, 42),
+					Rect2(900, 350, 120, 380),
+				],
+				"enemies": [
+					{ "position": Vector2(360, 380), "velocity": Vector2(1, 0.6), "hp": 1 },
+					{ "position": Vector2(1470, 360), "velocity": Vector2(-1, 0.66), "hp": 1 },
+					{ "position": Vector2(400, 700), "velocity": Vector2(0.9, -0.9), "hp": 1 },
+					{ "position": Vector2(1450, 710), "velocity": Vector2(-0.8, -0.92), "hp": 1 },
+				],
+			},
+		],
+		"elite": [
+			{
+				"id": "elite_default",
+				"hint": "先身法，再集火首领",
+				"lore": "鼓声沉闷，妖将守在险口",
+				"name": "精英前哨",
+				"type": "elite",
+				"walls": [
+					Rect2(360, 300, 220, 44),
+					Rect2(360, 720, 220, 44),
+					Rect2(1340, 300, 220, 44),
+					Rect2(1340, 720, 220, 44),
+					Rect2(840, 300, 240, 56),
+					Rect2(840, 724, 240, 56),
+				],
+				"enemies": [
+					{ "position": Vector2(960, 520), "velocity": Vector2(1, 0.4), "hp": 4 },
+					{ "position": Vector2(560, 500), "velocity": Vector2(1, -0.7), "hp": 1 },
+					{ "position": Vector2(1320, 520), "velocity": Vector2(-1, 0.75), "hp": 1 },
+				],
+			},
+			{
+				"id": "elite_fire_cloud",
+				"hint": "横移拉扯，别贴墙角",
+				"lore": "火光跳动，热浪逼人难久停",
+				"name": "火云洞前殿",
+				"type": "elite",
+				"walls": [
+					Rect2(360, 250, 160, 44),
+					Rect2(1400, 250, 160, 44),
+					Rect2(360, 786, 160, 44),
+					Rect2(1400, 786, 160, 44),
+					Rect2(760, 520, 120, 44),
+					Rect2(1040, 520, 120, 44),
+				],
+				"enemies": [
+					{ "position": Vector2(960, 520), "velocity": Vector2(1, 0.25), "hp": 5 },
+					{ "position": Vector2(650, 420), "velocity": Vector2(0.9, -0.95), "hp": 2 },
+					{ "position": Vector2(1270, 620), "velocity": Vector2(-0.9, 0.95), "hp": 2 },
+				],
+			},
+			{
+				"id": "elite_jindou",
+				"hint": "利用中路空档穿行",
+				"lore": "金光回旋，慢半拍便受困",
+				"name": "金兜洞外环",
+				"type": "elite",
+				"walls": [
+					Rect2(500, 300, 920, 34),
+					Rect2(500, 746, 920, 34),
+					Rect2(730, 420, 120, 220),
+					Rect2(1070, 420, 120, 220),
+				],
+				"enemies": [
+					{ "position": Vector2(960, 520), "velocity": Vector2(0.9, 0.58), "hp": 4 },
+					{ "position": Vector2(620, 520), "velocity": Vector2(1, -0.58), "hp": 2 },
+					{ "position": Vector2(1300, 520), "velocity": Vector2(-1, 0.58), "hp": 2 },
+				],
+			},
+		],
+		"rest": [
+			{
+				"id": "rest_calm",
+				"hint": "补给整顿，准备下一关",
+				"lore": "灯火微明，片刻安宁亦是修行",
+				"name": "宝物休整",
+				"type": "rest",
+				"walls": [
+					Rect2(620, 300, 120, 40),
+					Rect2(1180, 300, 120, 40),
+					Rect2(620, 740, 120, 40),
+					Rect2(1180, 740, 120, 40),
+				],
+				"enemies": [],
+			},
+			{
+				"id": "rest_dragon",
+				"hint": "记好出口方位，再起程",
+				"lore": "水影浮金，深宫回响如潮声",
+				"name": "龙宫偏殿",
+				"type": "rest",
+				"walls": [
+					Rect2(500, 280, 200, 40),
+					Rect2(1220, 280, 200, 40),
+					Rect2(500, 760, 200, 40),
+					Rect2(1220, 760, 200, 40),
+					Rect2(900, 420, 120, 220),
+				],
+				"enemies": [],
+			},
+		],
+	}
+
+func _build_room_route() -> Array[Dictionary]:
+	var route: Array[Dictionary] = []
+	var target_rooms := 4 + (randi() % 2)
+	var last_combat_id := ""
+	route.append(_pick_room_from_pool(room_pools.combat, last_combat_id))
+	last_combat_id = route[route.size() - 1].id
+	if target_rooms == 5:
+		route.append(_pick_room_from_pool(room_pools.combat, last_combat_id))
+		last_combat_id = route[route.size() - 1].id
+	route.append(_pick_room_from_pool(room_pools.elite))
+	route.append(_pick_room_from_pool(room_pools.combat, last_combat_id))
+	route.append(_pick_room_from_pool(room_pools.rest))
+	return route
 
 func _load_room(room_index: int, is_first_room: bool) -> void:
 	current_room_index = clampi(room_index, 0, max(0, room_templates.size() - 1))
+	if is_first_room:
+		run_complete = false
 	room_complete = false
 	ended = false
 	doors_open = false
@@ -436,6 +571,7 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 		pickup.queue_free()
 	_set_exit_locked()
 	var room_config := room_templates[current_room_index]
+	_update_room_info_panel(room_config)
 	_spawn_walls(room_config.walls)
 	_spawn_enemies(room_config.enemies)
 	player.global_position = Vector2(ROOM_MIN.x + 88.0, (ROOM_MIN.y + ROOM_MAX.y) * 0.5)
@@ -494,6 +630,12 @@ func _set_ui_running_state(running: bool) -> void:
 	$CanvasLayer/DoorStatusTitle.visible = running
 	$CanvasLayer/DoorStatus.visible = running
 	$CanvasLayer/DoorStatusAccent.visible = running
+	room_info_panel.visible = running
+	room_info_accent.visible = running
+	room_title_label.visible = running
+	room_progress_label.visible = running
+	room_hint_label.visible = running
+	room_lore_label.visible = running
 	$ExitHint.visible = running
 
 func _start_run() -> void:
@@ -506,3 +648,13 @@ func _start_run() -> void:
 func _set_paused_state(value: bool) -> void:
 	paused = value
 	pause_overlay.visible = paused
+
+func _update_room_info_panel(room_config: Dictionary) -> void:
+	var room_name := String(room_config.get("name", "未知试炼"))
+	var room_hint := String(room_config.get("hint", "清怪破印，稳住推进"))
+	var room_lore := String(room_config.get("lore", "古道漫漫，心定则路明"))
+	room_title_label.text = "试炼：%s" % room_name
+	room_progress_label.text = "进度 %d / %d" % [current_room_index + 1, room_templates.size()]
+	room_hint_label.text = "说明：%s" % room_hint
+	room_lore_label.text = "短句：%s" % room_lore
+	room_info_accent.color = Color(0.74, 0.56, 0.24, 1)
