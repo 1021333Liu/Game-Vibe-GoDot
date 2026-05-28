@@ -188,6 +188,97 @@ theme_override_font_sizes/font_size = 15
 text = "短句：风火炼心，行者不退。"
 autowrap_mode = 3
 
+[node name="RoutePanel" type="ColorRect" parent="CanvasLayer"]
+offset_left = 1368.0
+offset_top = 304.0
+offset_right = 1890.0
+offset_bottom = 486.0
+color = Color(0.03, 0.035, 0.045, 0.86)
+
+[node name="RouteAccent" type="ColorRect" parent="CanvasLayer"]
+offset_left = 1368.0
+offset_top = 304.0
+offset_right = 1890.0
+offset_bottom = 310.0
+color = Color(0.44, 0.62, 0.9, 1)
+
+[node name="RouteTitle" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 318.0
+offset_right = 1872.0
+offset_bottom = 348.0
+theme_override_colors/font_color = Color(0.84, 0.9, 0.96, 1)
+theme_override_font_sizes/font_size = 20
+text = "本局路线"
+
+[node name="RoutePreview" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 350.0
+offset_right = 1872.0
+offset_bottom = 478.0
+theme_override_colors/font_color = Color(0.74, 0.82, 0.9, 1)
+theme_override_font_sizes/font_size = 16
+text = "1. 普通战斗\n2. 精英房\n3. 宝物休整"
+autowrap_mode = 3
+
+[node name="CompleteOverlay" type="ColorRect" parent="CanvasLayer"]
+visible = false
+offset_right = 1920.0
+offset_bottom = 1080.0
+color = Color(0.03, 0.03, 0.04, 0.72)
+
+[node name="CompletePanel" type="ColorRect" parent="CanvasLayer/CompleteOverlay"]
+offset_left = 580.0
+offset_top = 240.0
+offset_right = 1340.0
+offset_bottom = 840.0
+color = Color(0.09, 0.08, 0.07, 0.94)
+
+[node name="CompleteAccent" type="ColorRect" parent="CanvasLayer/CompleteOverlay/CompletePanel"]
+offset_right = 760.0
+offset_bottom = 8.0
+color = Color(0.34, 0.84, 0.48, 1)
+
+[node name="CompleteTitle" type="Label" parent="CanvasLayer/CompleteOverlay/CompletePanel"]
+offset_left = 60.0
+offset_top = 48.0
+offset_right = 700.0
+offset_bottom = 120.0
+theme_override_colors/font_color = Color(0.95, 0.88, 0.72, 1)
+theme_override_font_sizes/font_size = 52
+text = "取经告捷"
+horizontal_alignment = 1
+
+[node name="CompleteSummary" type="Label" parent="CanvasLayer/CompleteOverlay/CompletePanel"]
+offset_left = 70.0
+offset_top = 156.0
+offset_right = 690.0
+offset_bottom = 252.0
+theme_override_colors/font_color = Color(0.84, 0.9, 0.92, 1)
+theme_override_font_sizes/font_size = 24
+text = "总计 4 房 / 用时 00:00 / 剩余生命 3"
+horizontal_alignment = 1
+
+[node name="CompleteRoute" type="Label" parent="CanvasLayer/CompleteOverlay/CompletePanel"]
+offset_left = 80.0
+offset_top = 278.0
+offset_right = 680.0
+offset_bottom = 454.0
+theme_override_colors/font_color = Color(0.76, 0.82, 0.88, 1)
+theme_override_font_sizes/font_size = 20
+text = "路线：\n1. 普通战斗\n2. 精英房\n3. 宝物休整"
+autowrap_mode = 3
+
+[node name="CompleteHint" type="Label" parent="CanvasLayer/CompleteOverlay/CompletePanel"]
+offset_left = 120.0
+offset_top = 502.0
+offset_right = 640.0
+offset_bottom = 560.0
+theme_override_colors/font_color = Color(0.78, 0.98, 0.86, 1)
+theme_override_font_sizes/font_size = 28
+text = "按 R 重开新路线"
+horizontal_alignment = 1
+
 [node name="StartOverlay" type="ColorRect" parent="CanvasLayer"]
 offset_right = 1920.0
 offset_bottom = 1080.0

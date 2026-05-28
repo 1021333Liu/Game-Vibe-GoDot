@@ -31,10 +31,14 @@ var ended := false
 var room_complete := false
 var run_complete := false
 var current_room_index := 0
+var current_room_type := "combat"
 var room_templates: Array[Dictionary] = []
 var room_pools: Dictionary = {}
 var started := false
 var paused := false
+var room_reward_granted := false
+var clear_reward_stacks := 0
+var run_time := 0.0
 var shot_meter_fill: ColorRect
 
 @onready var player: CharacterBody2D = $Player
@@ -57,6 +61,12 @@ var shot_meter_fill: ColorRect
 @onready var room_progress_label: Label = $CanvasLayer/RoomProgress
 @onready var room_hint_label: Label = $CanvasLayer/RoomHint
 @onready var room_lore_label: Label = $CanvasLayer/RoomLore
+@onready var route_panel: ColorRect = $CanvasLayer/RoutePanel
+@onready var route_accent: ColorRect = $CanvasLayer/RouteAccent
+@onready var route_preview_label: Label = $CanvasLayer/RoutePreview
+@onready var complete_overlay: ColorRect = $CanvasLayer/CompleteOverlay
+@onready var complete_summary_label: Label = $CanvasLayer/CompleteOverlay/CompletePanel/CompleteSummary
+@onready var complete_route_label: Label = $CanvasLayer/CompleteOverlay/CompletePanel/CompleteRoute
 @onready var start_overlay: ColorRect = $CanvasLayer/StartOverlay
 @onready var pause_overlay: ColorRect = $CanvasLayer/PauseOverlay
 
@@ -69,6 +79,7 @@ func _ready() -> void:
 	room_pools = _build_room_pools()
 	room_templates = _build_room_route()
 	_spawn_shot_meter()
+	_update_route_preview()
 	_load_room(0, true)
 	_set_ui_running_state(false)
 	_update_hud()
@@ -80,6 +91,7 @@ func _physics_process(delta: float) -> void:
 		return
 	if ended:
 		return
+	run_time += delta
 	shot_timer = maxf(0.0, shot_timer - delta)
 	shot_boost_timer = maxf(0.0, shot_boost_timer - delta)
 	message_timer = maxf(0.0, message_timer - delta)
@@ -270,6 +282,7 @@ func _open_doors() -> void:
 	if doors_open:
 		return
 	doors_open = true
+	_grant_room_clear_reward()
 	_set_exit_open()
 	_spawn_door(Vector2(ROOM_MAX.x - 72, (ROOM_MIN.y + ROOM_MAX.y) / 2.0 - 28.0))
 	_show_room_message("房间已净：绿色传送门开启", 3.0)
@@ -292,6 +305,7 @@ func _check_door_contact() -> void:
 			if next_room_index >= room_templates.size():
 				run_complete = true
 				ended = true
+				_show_complete_overlay()
 				_show_room_message("%d 房路线已通关：按 R 重开" % room_templates.size(), 999.0)
 			else:
 				_load_room(next_room_index, false)
@@ -367,7 +381,18 @@ func _current_shot_cooldown() -> float:
 	return BOOSTED_SHOT_COOLDOWN if shot_boost_timer > 0.0 else BASE_SHOT_COOLDOWN
 
 func _current_bullet_speed() -> float:
-	return BULLET_SPEED * 1.25 if shot_boost_timer > 0.0 else BULLET_SPEED
+	var speed_scale := 1.0 + 0.05 * float(clear_reward_stacks)
+	var boosted_scale := 1.25 if shot_boost_timer > 0.0 else 1.0
+	return BULLET_SPEED * boosted_scale * speed_scale
+
+func _grant_room_clear_reward() -> void:
+	if room_reward_granted:
+		return
+	if current_room_type == "rest":
+		return
+	room_reward_granted = true
+	clear_reward_stacks = min(clear_reward_stacks + 1, 5)
+	_show_room_message("清房奖励：气势+1（弹速提升）", 1.6)
 
 func _show_room_message(message: String, duration: float) -> void:
 	room_message = message
@@ -535,6 +560,28 @@ func _build_room_pools() -> Dictionary:
 				"enemies": [],
 			},
 		],
+		"boss": [
+			{
+				"id": "boss_blackwind",
+				"name": "黑风山妖王",
+				"type": "boss",
+				"hint": "先清两翼，再压首领走位",
+				"lore": "黑风卷林，袈裟旧案再起波澜",
+				"walls": [
+					Rect2(500, 260, 220, 46),
+					Rect2(1200, 260, 220, 46),
+					Rect2(500, 774, 220, 46),
+					Rect2(1200, 774, 220, 46),
+					Rect2(870, 390, 180, 52),
+					Rect2(870, 636, 180, 52),
+				],
+				"enemies": [
+					{ "position": Vector2(960, 520), "velocity": Vector2(0.95, 0.42), "hp": 8 },
+					{ "position": Vector2(620, 430), "velocity": Vector2(1.0, -0.72), "hp": 2 },
+					{ "position": Vector2(1290, 630), "velocity": Vector2(-1.0, 0.72), "hp": 2 },
+				],
+			},
+		],
 	}
 
 func _build_room_route() -> Array[Dictionary]:
@@ -548,7 +595,10 @@ func _build_room_route() -> Array[Dictionary]:
 		last_combat_id = route[route.size() - 1].id
 	route.append(_pick_room_from_pool(room_pools.elite))
 	route.append(_pick_room_from_pool(room_pools.combat, last_combat_id))
-	route.append(_pick_room_from_pool(room_pools.rest))
+	if randi() % 2 == 0:
+		route.append(_pick_room_from_pool(room_pools.rest))
+	else:
+		route.append(_pick_room_from_pool(room_pools.boss))
 	return route
 
 func _load_room(room_index: int, is_first_room: bool) -> void:
@@ -556,6 +606,7 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 	if is_first_room:
 		run_complete = false
 	room_complete = false
+	room_reward_granted = false
 	ended = false
 	doors_open = false
 	message_timer = 0.0
@@ -571,7 +622,9 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 		pickup.queue_free()
 	_set_exit_locked()
 	var room_config := room_templates[current_room_index]
+	current_room_type = String(room_config.get("type", "combat"))
 	_update_room_info_panel(room_config)
+	_update_route_preview()
 	_spawn_walls(room_config.walls)
 	_spawn_enemies(room_config.enemies)
 	player.global_position = Vector2(ROOM_MIN.x + 88.0, (ROOM_MIN.y + ROOM_MAX.y) * 0.5)
@@ -585,7 +638,7 @@ func _update_hud() -> void:
 	var charge_ratio := 1.0 - clampf(shot_timer / cooldown, 0.0, 1.0)
 	var charge := "READY" if shot_timer <= 0.0 else "%d%%" % roundi(charge_ratio * 100.0)
 	var boost := " / 定风珠 %.0fs" % shot_boost_timer if shot_boost_timer > 0.0 else ""
-	hud_label.text = "HP %d / 妖怪 %d / 攻击 %s%s" % [player.health, enemies.size(), charge, boost]
+	hud_label.text = "HP %d / 妖怪 %d / 攻击 %s%s / 奖励 %d" % [player.health, enemies.size(), charge, boost, clear_reward_stacks]
 	if shot_meter_fill != null:
 		shot_meter_fill.size.x = 240.0 * charge_ratio
 		shot_meter_fill.color = Color(0.36, 0.92, 0.48) if shot_timer <= 0.0 else Color(1.0, 0.76, 0.25)
@@ -621,6 +674,7 @@ func _draw_room_border() -> void:
 
 func _set_ui_running_state(running: bool) -> void:
 	start_overlay.visible = not running
+	complete_overlay.visible = false
 	hud_panel.visible = running
 	hud_accent.visible = running
 	objective_panel.visible = running
@@ -636,11 +690,18 @@ func _set_ui_running_state(running: bool) -> void:
 	room_progress_label.visible = running
 	room_hint_label.visible = running
 	room_lore_label.visible = running
+	route_panel.visible = running
+	route_accent.visible = running
+	$CanvasLayer/RouteTitle.visible = running
+	route_preview_label.visible = running
 	$ExitHint.visible = running
 
 func _start_run() -> void:
 	started = true
 	paused = false
+	run_time = 0.0
+	complete_overlay.visible = false
+	_update_route_preview()
 	_set_ui_running_state(true)
 	_set_paused_state(false)
 	_show_room_message("试炼开始：清空房间，破除封印。", 1.6)
@@ -658,3 +719,33 @@ func _update_room_info_panel(room_config: Dictionary) -> void:
 	room_hint_label.text = "说明：%s" % room_hint
 	room_lore_label.text = "短句：%s" % room_lore
 	room_info_accent.color = Color(0.74, 0.56, 0.24, 1)
+
+func _format_run_time(seconds: float) -> String:
+	var total := maxi(0, int(seconds))
+	var minutes := int(total / 60)
+	var remain := total % 60
+	return "%02d:%02d" % [minutes, remain]
+
+func _get_route_lines() -> PackedStringArray:
+	var lines: PackedStringArray = []
+	for i in range(room_templates.size()):
+		var room := room_templates[i]
+		var mark := "•"
+		if run_complete:
+			mark = "√"
+		elif i < current_room_index:
+			mark = "√"
+		elif i == current_room_index and started and not run_complete:
+			mark = "→"
+		lines.append("%s %d. %s" % [mark, i + 1, String(room.get("name", "未知房间"))])
+	return lines
+
+func _update_route_preview() -> void:
+	var lines := _get_route_lines()
+	route_preview_label.text = "\n".join(lines)
+
+func _show_complete_overlay() -> void:
+	complete_overlay.visible = true
+	var total_rooms := room_templates.size()
+	complete_summary_label.text = "总计 %d 房 / 用时 %s / 剩余生命 %d" % [total_rooms, _format_run_time(run_time), player.health]
+	complete_route_label.text = "路线：\n%s" % "\n".join(_get_route_lines())
