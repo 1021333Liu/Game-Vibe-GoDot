@@ -8,13 +8,18 @@ signal hurt
 
 var health: int = 3
 var invincible_time: float = 0.0
+var speed_boost_time: float = 0.0
+var speed_boost_multiplier: float = 1.0
 
 @onready var body: ColorRect = $Body
 
 func _physics_process(delta: float) -> void:
 	invincible_time = maxf(0.0, invincible_time - delta)
+	speed_boost_time = maxf(0.0, speed_boost_time - delta)
+	if speed_boost_time <= 0.0:
+		speed_boost_multiplier = 1.0
 	var direction := Input.get_vector("move_left", "move_right", "move_up", "move_down")
-	velocity = direction * move_speed
+	velocity = direction * move_speed * speed_boost_multiplier
 	move_and_slide()
 	global_position.x = clampf(global_position.x, room_min.x + 18.0, room_max.x - 18.0)
 	global_position.y = clampf(global_position.y, room_min.y + 18.0, room_max.y - 18.0)
@@ -34,3 +39,10 @@ func take_hit() -> bool:
 
 func is_alive() -> bool:
 	return health > 0
+
+func apply_speed_boost(duration: float, multiplier: float) -> void:
+	speed_boost_time = maxf(speed_boost_time, duration)
+	speed_boost_multiplier = maxf(speed_boost_multiplier, multiplier)
+
+func get_speed_boost_time() -> float:
+	return speed_boost_time

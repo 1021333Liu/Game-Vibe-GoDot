@@ -21,6 +21,8 @@ offset_right = 1760.0
 offset_bottom = 980.0
 color = Color(0.12, 0.13, 0.15, 1)
 
+[node name="RoomBorder" type="Node2D" parent="."]
+
 [node name="Walls" type="Node2D" parent="."]
 
 [node name="Enemies" type="Node2D" parent="."]
@@ -28,6 +30,23 @@ color = Color(0.12, 0.13, 0.15, 1)
 [node name="Bullets" type="Node2D" parent="."]
 
 [node name="Doors" type="Node2D" parent="."]
+
+[node name="ExitHint" type="ColorRect" parent="." unique_id=1175345282]
+offset_left = 1688.0
+offset_top = 512.0
+offset_right = 1744.0
+offset_bottom = 568.0
+color = Color(0.15, 0.18, 0.2, 1)
+
+[node name="ExitLabel" type="Label" parent="ExitHint"]
+offset_left = -26.0
+offset_top = 62.0
+offset_right = 82.0
+offset_bottom = 90.0
+theme_override_colors/font_color = Color(0.55, 0.62, 0.66, 1)
+theme_override_font_sizes/font_size = 18
+text = "EXIT LOCKED"
+horizontal_alignment = 1
 
 [node name="Player" type="CharacterBody2D" parent="." unique_id=230813088]
 position = Vector2(960, 540)
@@ -47,18 +66,73 @@ shape = SubResource("RectangleShape2D_player")
 
 [node name="CanvasLayer" type="CanvasLayer" parent="."]
 
+[node name="HUDPanel" type="ColorRect" parent="CanvasLayer"]
+offset_left = 24.0
+offset_top = 22.0
+offset_right = 650.0
+offset_bottom = 124.0
+color = Color(0.025, 0.03, 0.035, 0.86)
+
+[node name="HUDAccent" type="ColorRect" parent="CanvasLayer"]
+offset_left = 24.0
+offset_top = 22.0
+offset_right = 650.0
+offset_bottom = 28.0
+color = Color(0.95, 0.68, 0.18, 1)
+
 [node name="HUD" type="Label" parent="CanvasLayer"]
-offset_left = 32.0
-offset_top = 28.0
-offset_right = 620.0
-offset_bottom = 68.0
+offset_left = 42.0
+offset_top = 36.0
+offset_right = 632.0
+offset_bottom = 72.0
+theme_override_colors/font_color = Color(0.94, 0.96, 0.92, 1)
 theme_override_font_sizes/font_size = 28
-text = "HP 3 / 妖 4 / 攻击 READY"
+text = "HP 3   妖怪 4   攻击 READY"
+
+[node name="ObjectivePanel" type="ColorRect" parent="CanvasLayer"]
+offset_left = 32.0
+offset_top = 78.0
+offset_right = 636.0
+offset_bottom = 114.0
+color = Color(0.12, 0.14, 0.15, 0.82)
 
 [node name="Objective" type="Label" parent="CanvasLayer"]
-offset_left = 32.0
-offset_top = 76.0
-offset_right = 900.0
-offset_bottom = 116.0
+offset_left = 44.0
+offset_top = 82.0
+offset_right = 620.0
+offset_bottom = 112.0
+theme_override_colors/font_color = Color(0.78, 0.86, 0.88, 1)
 theme_override_font_sizes/font_size = 24
-text = "当前目标：清掉妖怪，开启传送门"
+text = "清空房间，开启传送门"
+
+[node name="DoorStatusPanel" type="ColorRect" parent="CanvasLayer"]
+offset_left = 1368.0
+offset_top = 22.0
+offset_right = 1890.0
+offset_bottom = 114.0
+color = Color(0.025, 0.03, 0.035, 0.86)
+
+[node name="DoorStatusAccent" type="ColorRect" parent="CanvasLayer"]
+offset_left = 1368.0
+offset_top = 22.0
+offset_right = 1890.0
+offset_bottom = 28.0
+color = Color(0.5, 0.57, 0.62, 1)
+
+[node name="DoorStatusTitle" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 36.0
+offset_right = 1874.0
+offset_bottom = 62.0
+theme_override_colors/font_color = Color(0.76, 0.82, 0.84, 1)
+theme_override_font_sizes/font_size = 18
+text = "传送门"
+
+[node name="DoorStatus" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 62.0
+offset_right = 1874.0
+offset_bottom = 98.0
+theme_override_colors/font_color = Color(0.83, 0.87, 0.9, 1)
+theme_override_font_sizes/font_size = 26
+text = "封印中"
