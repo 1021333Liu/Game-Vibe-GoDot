@@ -45,7 +45,7 @@ offset_right = 82.0
 offset_bottom = 90.0
 theme_override_colors/font_color = Color(0.55, 0.62, 0.66, 1)
 theme_override_font_sizes/font_size = 18
-text = "EXIT LOCKED"
+text = "封印中"
 horizontal_alignment = 1
 
 [node name="Player" type="CharacterBody2D" parent="." unique_id=230813088]
@@ -136,3 +136,108 @@ offset_bottom = 98.0
 theme_override_colors/font_color = Color(0.83, 0.87, 0.9, 1)
 theme_override_font_sizes/font_size = 26
 text = "封印中"
+
+[node name="StartOverlay" type="ColorRect" parent="CanvasLayer"]
+offset_right = 1920.0
+offset_bottom = 1080.0
+color = Color(0.03, 0.03, 0.04, 0.82)
+
+[node name="StartPanel" type="ColorRect" parent="CanvasLayer/StartOverlay"]
+offset_left = 560.0
+offset_top = 250.0
+offset_right = 1360.0
+offset_bottom = 830.0
+color = Color(0.09, 0.08, 0.07, 0.94)
+
+[node name="StartPanelAccent" type="ColorRect" parent="CanvasLayer/StartOverlay/StartPanel"]
+offset_right = 800.0
+offset_bottom = 8.0
+color = Color(0.82, 0.58, 0.2, 1)
+
+[node name="StartTitle" type="Label" parent="CanvasLayer/StartOverlay/StartPanel"]
+offset_left = 52.0
+offset_top = 42.0
+offset_right = 748.0
+offset_bottom = 112.0
+theme_override_colors/font_color = Color(0.95, 0.88, 0.72, 1)
+theme_override_font_sizes/font_size = 52
+text = "西游降妖录"
+horizontal_alignment = 1
+
+[node name="StartSubtitle" type="Label" parent="CanvasLayer/StartOverlay/StartPanel"]
+offset_left = 74.0
+offset_top = 132.0
+offset_right = 726.0
+offset_bottom = 194.0
+theme_override_colors/font_color = Color(0.78, 0.82, 0.84, 1)
+theme_override_font_sizes/font_size = 24
+text = "清房、破印、继续西行"
+horizontal_alignment = 1
+
+[node name="StartControls" type="Label" parent="CanvasLayer/StartOverlay/StartPanel"]
+offset_left = 74.0
+offset_top = 244.0
+offset_right = 726.0
+offset_bottom = 424.0
+theme_override_colors/font_color = Color(0.86, 0.9, 0.88, 1)
+theme_override_font_sizes/font_size = 28
+text = "WASD 移动\n方向键射击\nP 暂停 / R 重开"
+horizontal_alignment = 1
+
+[node name="StartHint" type="Label" parent="CanvasLayer/StartOverlay/StartPanel"]
+offset_left = 74.0
+offset_top = 486.0
+offset_right = 726.0
+offset_bottom = 552.0
+theme_override_colors/font_color = Color(1, 0.83, 0.47, 1)
+theme_override_font_sizes/font_size = 28
+text = "按 Enter 开始"
+horizontal_alignment = 1
+
+[node name="PauseOverlay" type="ColorRect" parent="CanvasLayer"]
+visible = false
+offset_right = 1920.0
+offset_bottom = 1080.0
+color = Color(0.02, 0.02, 0.04, 0.62)
+
+[node name="PausePanel" type="ColorRect" parent="CanvasLayer/PauseOverlay"]
+offset_left = 620.0
+offset_top = 280.0
+offset_right = 1300.0
+offset_bottom = 800.0
+color = Color(0.08, 0.09, 0.1, 0.94)
+
+[node name="PauseAccent" type="ColorRect" parent="CanvasLayer/PauseOverlay/PausePanel"]
+offset_right = 680.0
+offset_bottom = 8.0
+color = Color(0.46, 0.66, 0.92, 1)
+
+[node name="PauseTitle" type="Label" parent="CanvasLayer/PauseOverlay/PausePanel"]
+offset_left = 56.0
+offset_top = 48.0
+offset_right = 624.0
+offset_bottom = 112.0
+theme_override_colors/font_color = Color(0.9, 0.93, 1, 1)
+theme_override_font_sizes/font_size = 50
+text = "暂停"
+horizontal_alignment = 1
+
+[node name="PauseTips" type="Label" parent="CanvasLayer/PauseOverlay/PausePanel"]
+offset_left = 58.0
+offset_top = 158.0
+offset_right = 622.0
+offset_bottom = 370.0
+theme_override_colors/font_color = Color(0.82, 0.88, 0.92, 1)
+theme_override_font_sizes/font_size = 26
+text = "清空妖怪后传送门开启。\n蓝色定风珠会短暂提升弹道。"
+horizontal_alignment = 1
+
+[node name="PauseHint" type="Label" parent="CanvasLayer/PauseOverlay/PausePanel"]
+offset_left = 58.0
+offset_top = 402.0
+offset_right = 622.0
+offset_bottom = 476.0
+theme_override_colors/font_color = Color(0.78, 0.98, 0.86, 1)
+theme_override_font_sizes/font_size = 30
+text = "按 P 继续"
+horizontal_alignment = 1

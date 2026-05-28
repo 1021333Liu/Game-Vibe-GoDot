@@ -29,9 +29,15 @@ var pickups: Array[Dictionary] = []
 var doors_open := false
 var ended := false
 var room_complete := false
+var run_complete := false
+var current_room_index := 0
+var room_templates: Array[Dictionary] = []
+var started := false
+var paused := false
 var shot_meter_fill: ColorRect
 
 @onready var player: CharacterBody2D = $Player
+@onready var room_border: Node2D = $RoomBorder
 @onready var walls_root: Node2D = $Walls
 @onready var enemies_root: Node2D = $Enemies
 @onready var bullets_root: Node2D = $Bullets
@@ -40,20 +46,29 @@ var shot_meter_fill: ColorRect
 @onready var exit_label: Label = $ExitHint/ExitLabel
 @onready var hud_label: Label = $CanvasLayer/HUD
 @onready var objective_label: Label = $CanvasLayer/Objective
+@onready var hud_panel: ColorRect = $CanvasLayer/HUDPanel
+@onready var hud_accent: ColorRect = $CanvasLayer/HUDAccent
+@onready var objective_panel: ColorRect = $CanvasLayer/ObjectivePanel
+@onready var door_status_accent: ColorRect = $CanvasLayer/DoorStatusAccent
+@onready var start_overlay: ColorRect = $CanvasLayer/StartOverlay
+@onready var pause_overlay: ColorRect = $CanvasLayer/PauseOverlay
 
 func _ready() -> void:
 	player.room_min = ROOM_MIN
 	player.room_max = ROOM_MAX
 	player.hurt.connect(_on_player_hurt)
-	_spawn_walls()
-	_spawn_enemies()
+	_draw_room_border()
+	room_templates = _build_room_templates()
 	_spawn_shot_meter()
-	_set_exit_locked()
+	_load_room(0, true)
+	_set_ui_running_state(false)
 	_update_hud()
 
 func _physics_process(delta: float) -> void:
 	if Input.is_key_pressed(KEY_R):
 		get_tree().reload_current_scene()
+	if not started or paused:
+		return
 	if ended:
 		return
 	shot_timer = maxf(0.0, shot_timer - delta)
@@ -117,14 +132,7 @@ func _update_bullets(delta: float) -> void:
 			bullets.remove_at(i)
 			_damage_enemy(hit_index, bullet.velocity.normalized())
 
-func _spawn_walls() -> void:
-	var walls := [
-		Rect2(470, 210, 260, 48),
-		Rect2(470, 810, 260, 48),
-		Rect2(1190, 210, 260, 48),
-		Rect2(1190, 810, 260, 48),
-		Rect2(890, 440, 140, 200),
-	]
+func _spawn_walls(walls: Array) -> void:
 	for wall_rect in walls:
 		var wall := ColorRect.new()
 		wall.position = wall_rect.position
@@ -133,13 +141,7 @@ func _spawn_walls() -> void:
 		wall.add_to_group("wall")
 		walls_root.add_child(wall)
 
-func _spawn_enemies() -> void:
-	var configs := [
-		{ "position": Vector2(360, 250), "velocity": Vector2(1, 0.75), "hp": 1 },
-		{ "position": Vector2(1450, 280), "velocity": Vector2(-0.8, 1), "hp": 1 },
-		{ "position": Vector2(420, 760), "velocity": Vector2(1, -0.9), "hp": 1 },
-		{ "position": Vector2(1420, 760), "velocity": Vector2(-1, -0.72), "hp": 2 },
-	]
+func _spawn_enemies(configs: Array) -> void:
 	for config in configs:
 		_spawn_enemy(config.position, config.velocity.normalized() * ENEMY_SPEED, config.hp)
 
@@ -226,6 +228,7 @@ func _spawn_pickup(center_position: Vector2) -> void:
 	pickup.size = PICKUP_SIZE
 	pickup.position = center_position - PICKUP_SIZE / 2.0
 	pickup.color = Color(0.2, 0.68, 1.0)
+	pickup.add_to_group("pickup")
 	add_child(pickup)
 	pickups.append({
 		"node": pickup,
@@ -270,30 +273,41 @@ func _spawn_door(door_position: Vector2) -> void:
 	doors_root.add_child(door)
 
 func _check_door_contact() -> void:
-	if not doors_open or room_complete:
+	if not doors_open or room_complete or run_complete:
 		return
 	var player_rect := Rect2(player.position - PLAYER_SIZE / 2.0, PLAYER_SIZE)
 	for door in doors_root.get_children():
 		if player_rect.intersects(Rect2(door.position, door.size)):
 			room_complete = true
-			ended = true
-			_show_room_message("本房间通过：下一轮接入随机八十一难路线", 999.0)
+			var next_room_index := current_room_index + 1
+			if next_room_index >= room_templates.size():
+				run_complete = true
+				ended = true
+				_show_room_message("三间试炼已通关：按 R 重开", 999.0)
+			else:
+				_load_room(next_room_index, false)
 
 func _set_exit_locked() -> void:
 	exit_hint.color = LOCKED_EXIT_COLOR
-	exit_label.text = "EXIT LOCKED"
+	exit_label.text = "封印中"
 	var door_status := get_node_or_null("CanvasLayer/DoorStatus")
 	if door_status is Label:
-		door_status.text = "LOCKED"
+		door_status.text = "封印中"
 		door_status.add_theme_color_override("font_color", Color(0.83, 0.87, 0.9))
+	door_status_accent.color = Color(0.5, 0.57, 0.62, 1)
+	hud_accent.color = Color(0.95, 0.68, 0.18, 1)
+	objective_panel.color = Color(0.12, 0.14, 0.15, 0.82)
 
 func _set_exit_open() -> void:
 	exit_hint.color = OPEN_EXIT_COLOR
-	exit_label.text = "EXIT OPEN"
+	exit_label.text = "已开启"
 	var door_status := get_node_or_null("CanvasLayer/DoorStatus")
 	if door_status is Label:
-		door_status.text = "OPEN"
+		door_status.text = "已开启"
 		door_status.add_theme_color_override("font_color", OPEN_EXIT_COLOR)
+	door_status_accent.color = Color(0.33, 0.82, 0.46, 1)
+	hud_accent.color = Color(0.34, 0.84, 0.48, 1)
+	objective_panel.color = Color(0.1, 0.18, 0.13, 0.86)
 
 func _update_enemy_status(enemy: Dictionary) -> void:
 	var hp_fill: ColorRect = enemy.hp_fill
@@ -351,6 +365,85 @@ func _show_room_message(message: String, duration: float) -> void:
 	message_timer = duration
 	objective_label.text = room_message
 
+func _clear_node_children(node: Node) -> void:
+	for child in node.get_children():
+		child.queue_free()
+
+func _build_room_templates() -> Array[Dictionary]:
+	return [
+		{
+			"id": "combat",
+			"name": "普通战斗",
+			"walls": [
+				Rect2(470, 210, 260, 48),
+				Rect2(470, 810, 260, 48),
+				Rect2(1190, 210, 260, 48),
+				Rect2(1190, 810, 260, 48),
+				Rect2(890, 440, 140, 200),
+			],
+			"enemies": [
+				{ "position": Vector2(360, 250), "velocity": Vector2(1, 0.75), "hp": 1 },
+				{ "position": Vector2(1450, 280), "velocity": Vector2(-0.8, 1), "hp": 1 },
+				{ "position": Vector2(420, 760), "velocity": Vector2(1, -0.9), "hp": 1 },
+				{ "position": Vector2(1420, 760), "velocity": Vector2(-1, -0.72), "hp": 2 },
+			],
+		},
+		{
+			"id": "elite",
+			"name": "精英房",
+			"walls": [
+				Rect2(360, 300, 220, 44),
+				Rect2(360, 720, 220, 44),
+				Rect2(1340, 300, 220, 44),
+				Rect2(1340, 720, 220, 44),
+				Rect2(840, 300, 240, 56),
+				Rect2(840, 724, 240, 56),
+			],
+			"enemies": [
+				{ "position": Vector2(960, 520), "velocity": Vector2(1, 0.4), "hp": 4 },
+				{ "position": Vector2(560, 500), "velocity": Vector2(1, -0.7), "hp": 1 },
+				{ "position": Vector2(1320, 520), "velocity": Vector2(-1, 0.75), "hp": 1 },
+			],
+		},
+		{
+			"id": "rest",
+			"name": "宝物休整",
+			"walls": [
+				Rect2(620, 300, 120, 40),
+				Rect2(1180, 300, 120, 40),
+				Rect2(620, 740, 120, 40),
+				Rect2(1180, 740, 120, 40),
+			],
+			"enemies": [],
+		},
+	]
+
+func _load_room(room_index: int, is_first_room: bool) -> void:
+	current_room_index = clampi(room_index, 0, max(0, room_templates.size() - 1))
+	room_complete = false
+	ended = false
+	doors_open = false
+	message_timer = 0.0
+	room_message = ""
+	bullets.clear()
+	enemies.clear()
+	pickups.clear()
+	_clear_node_children(bullets_root)
+	_clear_node_children(enemies_root)
+	_clear_node_children(doors_root)
+	_clear_node_children(walls_root)
+	for pickup in get_tree().get_nodes_in_group("pickup"):
+		pickup.queue_free()
+	_set_exit_locked()
+	var room_config := room_templates[current_room_index]
+	_spawn_walls(room_config.walls)
+	_spawn_enemies(room_config.enemies)
+	player.global_position = Vector2(ROOM_MIN.x + 88.0, (ROOM_MIN.y + ROOM_MAX.y) * 0.5)
+	if room_config.enemies.is_empty():
+		_open_doors()
+	var prefix := "进入" if is_first_room else "抵达"
+	_show_room_message("%s：%s (%d/%d)" % [prefix, room_config.name, current_room_index + 1, room_templates.size()], 2.0)
+
 func _update_hud() -> void:
 	var cooldown := _current_shot_cooldown()
 	var charge_ratio := 1.0 - clampf(shot_timer / cooldown, 0.0, 1.0)
@@ -369,3 +462,47 @@ func _update_hud() -> void:
 
 func _on_player_hurt() -> void:
 	_show_room_message("受伤：短暂无敌", 1.2)
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_ENTER and not started:
+			_start_run()
+			return
+		if event.keycode == KEY_P and started and not ended:
+			_set_paused_state(not paused)
+
+func _draw_room_border() -> void:
+	var outer := ColorRect.new()
+	outer.position = ROOM_MIN - Vector2(14, 14)
+	outer.size = (ROOM_MAX - ROOM_MIN) + Vector2(28, 28)
+	outer.color = Color(0.24, 0.18, 0.12, 0.92)
+	room_border.add_child(outer)
+	var inner := ColorRect.new()
+	inner.position = ROOM_MIN - Vector2(8, 8)
+	inner.size = (ROOM_MAX - ROOM_MIN) + Vector2(16, 16)
+	inner.color = Color(0.43, 0.3, 0.16, 0.9)
+	room_border.add_child(inner)
+
+func _set_ui_running_state(running: bool) -> void:
+	start_overlay.visible = not running
+	hud_panel.visible = running
+	hud_accent.visible = running
+	objective_panel.visible = running
+	$CanvasLayer/HUD.visible = running
+	$CanvasLayer/Objective.visible = running
+	$CanvasLayer/DoorStatusPanel.visible = running
+	$CanvasLayer/DoorStatusTitle.visible = running
+	$CanvasLayer/DoorStatus.visible = running
+	$CanvasLayer/DoorStatusAccent.visible = running
+	$ExitHint.visible = running
+
+func _start_run() -> void:
+	started = true
+	paused = false
+	_set_ui_running_state(true)
+	_set_paused_state(false)
+	_show_room_message("试炼开始：清空房间，破除封印。", 1.6)
+
+func _set_paused_state(value: bool) -> void:
+	paused = value
+	pause_overlay.visible = paused
