@@ -82,12 +82,111 @@ color = Color(0.95, 0.68, 0.18, 1)
 
 [node name="HUD" type="Label" parent="CanvasLayer"]
 offset_left = 42.0
-offset_top = 36.0
+offset_top = 34.0
+offset_right = 180.0
+offset_bottom = 58.0
+theme_override_colors/font_color = Color(0.98, 0.88, 0.68, 1)
+theme_override_font_sizes/font_size = 17
+text = "取经状态"
+
+[node name="HudHpCell" type="ColorRect" parent="CanvasLayer"]
+offset_left = 42.0
+offset_top = 62.0
+offset_right = 174.0
+offset_bottom = 104.0
+color = Color(0.11, 0.045, 0.04, 0.86)
+
+[node name="HudHpIcon" type="Label" parent="CanvasLayer"]
+offset_left = 52.0
+offset_top = 68.0
+offset_right = 82.0
+offset_bottom = 98.0
+theme_override_colors/font_color = Color(1, 0.36, 0.31, 1)
+theme_override_font_sizes/font_size = 21
+text = "心"
+
+[node name="HudHpValue" type="Label" parent="CanvasLayer"]
+offset_left = 84.0
+offset_top = 68.0
+offset_right = 164.0
+offset_bottom = 98.0
+theme_override_colors/font_color = Color(0.98, 0.9, 0.84, 1)
+theme_override_font_sizes/font_size = 21
+text = "3"
+
+[node name="HudEnemyCell" type="ColorRect" parent="CanvasLayer"]
+offset_left = 184.0
+offset_top = 62.0
+offset_right = 318.0
+offset_bottom = 104.0
+color = Color(0.1, 0.075, 0.04, 0.86)
+
+[node name="HudEnemyIcon" type="Label" parent="CanvasLayer"]
+offset_left = 194.0
+offset_top = 68.0
+offset_right = 224.0
+offset_bottom = 98.0
+theme_override_colors/font_color = Color(1, 0.7, 0.3, 1)
+theme_override_font_sizes/font_size = 21
+text = "妖"
+
+[node name="HudEnemyValue" type="Label" parent="CanvasLayer"]
+offset_left = 226.0
+offset_top = 68.0
+offset_right = 308.0
+offset_bottom = 98.0
+theme_override_colors/font_color = Color(0.98, 0.92, 0.8, 1)
+theme_override_font_sizes/font_size = 21
+text = "4"
+
+[node name="HudAttackCell" type="ColorRect" parent="CanvasLayer"]
+offset_left = 328.0
+offset_top = 62.0
+offset_right = 472.0
+offset_bottom = 104.0
+color = Color(0.055, 0.085, 0.11, 0.86)
+
+[node name="HudAttackIcon" type="Label" parent="CanvasLayer"]
+offset_left = 338.0
+offset_top = 68.0
+offset_right = 368.0
+offset_bottom = 98.0
+theme_override_colors/font_color = Color(0.6, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 21
+text = "击"
+
+[node name="HudAttackValue" type="Label" parent="CanvasLayer"]
+offset_left = 370.0
+offset_top = 68.0
+offset_right = 462.0
+offset_bottom = 98.0
+theme_override_colors/font_color = Color(0.88, 0.96, 1, 1)
+theme_override_font_sizes/font_size = 20
+text = "就绪"
+
+[node name="HudRewardCell" type="ColorRect" parent="CanvasLayer"]
+offset_left = 482.0
+offset_top = 62.0
 offset_right = 632.0
-offset_bottom = 72.0
-theme_override_colors/font_color = Color(0.94, 0.96, 0.92, 1)
-theme_override_font_sizes/font_size = 28
-text = "HP 3   妖怪 4   攻击 READY"
+offset_bottom = 104.0
+color = Color(0.095, 0.08, 0.035, 0.86)
+
+[node name="HudRewardIcon" type="TextureRect" parent="CanvasLayer"]
+offset_left = 492.0
+offset_top = 67.0
+offset_right = 522.0
+offset_bottom = 97.0
+expand_mode = 1
+stretch_mode = 5
+
+[node name="HudRewardValue" type="Label" parent="CanvasLayer"]
+offset_left = 526.0
+offset_top = 68.0
+offset_right = 622.0
+offset_bottom = 98.0
+theme_override_colors/font_color = Color(1, 0.88, 0.58, 1)
+theme_override_font_sizes/font_size = 20
+text = "气 0"
 
 [node name="ObjectivePanel" type="ColorRect" parent="CanvasLayer"]
 offset_left = 32.0

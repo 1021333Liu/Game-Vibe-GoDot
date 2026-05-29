@@ -16,6 +16,15 @@ const BULLET_SIZE := Vector2(18, 10)
 const PICKUP_SIZE := Vector2(30, 30)
 const HIT_FLASH_TIME := 0.16
 const HIT_KNOCKBACK := 260.0
+const ENEMY_CHASE_STEER := 90.0
+const ENEMY_WANDER_STEER := 34.0
+const ELITE_RUSH_INTERVAL := 3.2
+const ELITE_RUSH_DURATION := 0.85
+const ELITE_RUSH_SCALE := 1.85
+const BOSS_ACTION_INTERVAL := 2.6
+const BOSS_CHARGE_DURATION := 0.7
+const BOSS_CHARGE_SCALE := 2.15
+const BOSS_SUMMON_LIMIT := 6
 const ENEMY_COLOR := Color(0.78, 0.18, 0.17)
 const ELITE_COLOR := Color(0.88, 0.32, 0.16)
 const LOCKED_EXIT_COLOR := Color(0.15, 0.18, 0.2)
@@ -64,6 +73,13 @@ var art_textures: Dictionary = {}
 @onready var exit_hint: ColorRect = $ExitHint
 @onready var exit_label: Label = $ExitHint/ExitLabel
 @onready var hud_label: Label = $CanvasLayer/HUD
+@onready var hud_hp_cell: ColorRect = $CanvasLayer/HudHpCell
+@onready var hud_hp_value: Label = $CanvasLayer/HudHpValue
+@onready var hud_enemy_value: Label = $CanvasLayer/HudEnemyValue
+@onready var hud_attack_cell: ColorRect = $CanvasLayer/HudAttackCell
+@onready var hud_attack_value: Label = $CanvasLayer/HudAttackValue
+@onready var hud_reward_icon: TextureRect = $CanvasLayer/HudRewardIcon
+@onready var hud_reward_value: Label = $CanvasLayer/HudRewardValue
 @onready var objective_label: Label = $CanvasLayer/Objective
 @onready var hud_panel: ColorRect = $CanvasLayer/HUDPanel
 @onready var hud_accent: ColorRect = $CanvasLayer/HUDAccent
@@ -105,6 +121,7 @@ func _ready() -> void:
 	_load_room(0, true)
 	_set_ui_running_state(false)
 	_update_reward_panel()
+	_update_reward_icon()
 	_update_hud()
 
 func _physics_process(delta: float) -> void:
@@ -189,15 +206,24 @@ func _spawn_walls(walls: Array) -> void:
 
 func _spawn_enemies(configs: Array) -> void:
 	for config in configs:
-		_spawn_enemy(config.position, config.velocity.normalized() * ENEMY_SPEED, config.hp)
+		_spawn_enemy(config)
 
-func _spawn_enemy(enemy_position: Vector2, enemy_velocity: Vector2, hp: int) -> void:
+func _spawn_enemy(config: Dictionary) -> void:
+	var hp := int(config.get("hp", 1))
+	var enemy_position: Vector2 = config.get("position", Vector2.ZERO)
+	var enemy_velocity: Vector2 = config.get("velocity", Vector2.RIGHT)
+	var behavior := String(config.get("behavior", _default_enemy_behavior(hp)))
+	var speed := float(config.get("speed", ENEMY_SPEED))
 	var enemy := ColorRect.new()
 	enemy.position = enemy_position
 	enemy.size = ENEMY_SIZE if hp == 1 else Vector2(58, 58)
+	if behavior == "boss":
+		enemy.size = Vector2(78, 78)
 	var base_color := ENEMY_COLOR if hp == 1 else ELITE_COLOR
+	if behavior == "boss":
+		base_color = Color(0.44, 0.22, 0.58)
 	enemy.color = base_color
-	_attach_art(enemy, _get_enemy_art_key(hp))
+	_attach_art(enemy, _get_enemy_art_key(hp, behavior))
 	var hp_back := ColorRect.new()
 	hp_back.name = "HpBack"
 	hp_back.position = Vector2(0.0, -10.0)
@@ -212,12 +238,18 @@ func _spawn_enemy(enemy_position: Vector2, enemy_velocity: Vector2, hp: int) -> 
 	enemies_root.add_child(enemy)
 	var enemy_state := {
 		"node": enemy,
-		"velocity": enemy_velocity,
+		"velocity": enemy_velocity.normalized() * speed,
+		"speed": speed,
 		"hp": hp,
 		"max_hp": hp,
 		"base_color": base_color,
 		"hit_flash": 0.0,
 		"hp_fill": hp_fill,
+		"behavior": behavior,
+		"state": "idle",
+		"state_timer": 0.0,
+		"action_timer": float(config.get("action_timer", randf_range(0.8, 2.2))),
+		"wander_phase": randf_range(0.0, TAU),
 	}
 	enemies.append(enemy_state)
 	_update_enemy_status(enemy_state)
@@ -227,7 +259,13 @@ func _update_enemies(delta: float) -> void:
 		var node: ColorRect = enemy.node
 		enemy.hit_flash = maxf(0.0, enemy.hit_flash - delta)
 		node.color = Color(1.0, 0.92, 0.62) if enemy.hit_flash > 0.0 else enemy.base_color
-		node.position += enemy.velocity * delta
+		_update_enemy_behavior(enemy, delta)
+		var move_velocity: Vector2 = enemy.velocity
+		if enemy.state == "rushing":
+			move_velocity *= ELITE_RUSH_SCALE
+		elif enemy.state == "charging":
+			move_velocity *= BOSS_CHARGE_SCALE
+		node.position += move_velocity * delta
 		var rect := Rect2(node.position, node.size)
 		var bounced := false
 		if rect.position.x <= ROOM_MIN.x or rect.end.x >= ROOM_MAX.x:
@@ -242,6 +280,94 @@ func _update_enemies(delta: float) -> void:
 		if bounced:
 			node.position.x = clampf(node.position.x, ROOM_MIN.x, ROOM_MAX.x - node.size.x)
 			node.position.y = clampf(node.position.y, ROOM_MIN.y, ROOM_MAX.y - node.size.y)
+
+func _update_enemy_behavior(enemy: Dictionary, delta: float) -> void:
+	var behavior := String(enemy.get("behavior", "wander"))
+	if behavior == "chase":
+		_steer_enemy_toward_player(enemy, delta, 0.72)
+		_add_enemy_wander(enemy, delta)
+	elif behavior == "elite":
+		_update_elite_behavior(enemy, delta)
+	elif behavior == "boss":
+		_update_boss_behavior(enemy, delta)
+	else:
+		_add_enemy_wander(enemy, delta)
+	_limit_enemy_velocity(enemy, float(enemy.get("speed", ENEMY_SPEED)))
+
+func _steer_enemy_toward_player(enemy: Dictionary, delta: float, strength_scale: float = 1.0) -> void:
+	var node: ColorRect = enemy.node
+	var enemy_center := node.position + node.size / 2.0
+	var target := (player.position - enemy_center).normalized()
+	enemy.velocity += target * ENEMY_CHASE_STEER * strength_scale * delta
+
+func _add_enemy_wander(enemy: Dictionary, delta: float) -> void:
+	enemy.wander_phase += delta * 1.7
+	var drift := Vector2(cos(enemy.wander_phase), sin(enemy.wander_phase * 0.73))
+	enemy.velocity += drift * ENEMY_WANDER_STEER * delta
+
+func _update_elite_behavior(enemy: Dictionary, delta: float) -> void:
+	_steer_enemy_toward_player(enemy, delta, 0.55)
+	if enemy.state == "rushing":
+		enemy.state_timer -= delta
+		if enemy.state_timer <= 0.0:
+			enemy.state = "idle"
+			enemy.action_timer = ELITE_RUSH_INTERVAL
+		return
+	enemy.action_timer -= delta
+	if enemy.action_timer <= 0.0:
+		enemy.state = "rushing"
+		enemy.state_timer = ELITE_RUSH_DURATION
+		_show_room_message("精英急袭：拉开身位", 0.9)
+
+func _update_boss_behavior(enemy: Dictionary, delta: float) -> void:
+	_steer_enemy_toward_player(enemy, delta, 0.42)
+	if enemy.state == "charging":
+		enemy.state_timer -= delta
+		if enemy.state_timer <= 0.0:
+			enemy.state = "idle"
+			enemy.action_timer = BOSS_ACTION_INTERVAL
+		return
+	enemy.action_timer -= delta
+	if enemy.action_timer > 0.0:
+		return
+	if _count_live_enemies("summon") < BOSS_SUMMON_LIMIT and randi() % 2 == 0:
+		_spawn_boss_summon(enemy)
+		_show_room_message("黑风妖王召来小妖", 1.0)
+	else:
+		enemy.state = "charging"
+		enemy.state_timer = BOSS_CHARGE_DURATION
+		enemy.velocity = (player.position - (enemy.node.position + enemy.node.size / 2.0)).normalized() * float(enemy.get("speed", ENEMY_SPEED))
+		_show_room_message("黑风妖王冲刺", 1.0)
+
+func _limit_enemy_velocity(enemy: Dictionary, max_speed: float) -> void:
+	enemy.velocity = enemy.velocity.limit_length(max_speed)
+
+func _count_live_enemies(behavior: String) -> int:
+	var count := 0
+	for enemy in enemies:
+		if String(enemy.get("behavior", "")) == behavior:
+			count += 1
+	return count
+
+func _spawn_boss_summon(boss_enemy: Dictionary) -> void:
+	var boss_node: ColorRect = boss_enemy.node
+	var spawn_position := boss_node.position + Vector2(randf_range(-120.0, 120.0), randf_range(-92.0, 92.0))
+	spawn_position.x = clampf(spawn_position.x, ROOM_MIN.x + 48.0, ROOM_MAX.x - 96.0)
+	spawn_position.y = clampf(spawn_position.y, ROOM_MIN.y + 48.0, ROOM_MAX.y - 96.0)
+	_spawn_enemy({
+		"position": spawn_position,
+		"velocity": Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)),
+		"hp": 1,
+		"behavior": "summon",
+		"speed": ENEMY_SPEED * 1.05,
+	})
+
+func _default_enemy_behavior(hp: int) -> String:
+	if hp >= 8:
+		return "boss"
+	if hp >= 3:
+		return "elite"
+	return "chase"
 
 func _check_enemy_contact() -> void:
 	var player_rect := Rect2(player.position - PLAYER_SIZE / 2.0, PLAYER_SIZE)
@@ -519,10 +645,10 @@ func _attach_art(target: ColorRect, art_key: String) -> void:
 	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	target.add_child(art)
 
-func _get_enemy_art_key(hp: int) -> String:
-	if hp >= 8:
+func _get_enemy_art_key(hp: int, behavior: String = "") -> String:
+	if behavior == "boss" or hp >= 8:
 		return "boss"
-	if hp > 1:
+	if behavior == "elite" or hp > 1:
 		return "elite"
 	return "enemy"
 
@@ -576,10 +702,10 @@ func _build_room_pools() -> Dictionary:
 					Rect2(890, 440, 140, 200),
 				],
 				"enemies": [
-					{ "position": Vector2(360, 250), "velocity": Vector2(1, 0.75), "hp": 1 },
-					{ "position": Vector2(1450, 280), "velocity": Vector2(-0.8, 1), "hp": 1 },
-					{ "position": Vector2(420, 760), "velocity": Vector2(1, -0.9), "hp": 1 },
-					{ "position": Vector2(1420, 760), "velocity": Vector2(-1, -0.72), "hp": 2 },
+					{ "position": Vector2(360, 250), "velocity": Vector2(1, 0.75), "hp": 1, "behavior": "chase", "speed": ENEMY_SPEED * 0.95 },
+					{ "position": Vector2(1450, 280), "velocity": Vector2(-0.8, 1), "hp": 1, "behavior": "chase", "speed": ENEMY_SPEED * 0.95 },
+					{ "position": Vector2(420, 760), "velocity": Vector2(1, -0.9), "hp": 1, "behavior": "wander", "speed": ENEMY_SPEED * 1.05 },
+					{ "position": Vector2(1420, 760), "velocity": Vector2(-1, -0.72), "hp": 2, "behavior": "chase", "speed": ENEMY_SPEED },
 				],
 			},
 			{
@@ -596,10 +722,10 @@ func _build_room_pools() -> Dictionary:
 					Rect2(900, 350, 120, 380),
 				],
 				"enemies": [
-					{ "position": Vector2(360, 380), "velocity": Vector2(1, 0.6), "hp": 1 },
-					{ "position": Vector2(1470, 360), "velocity": Vector2(-1, 0.66), "hp": 1 },
-					{ "position": Vector2(400, 700), "velocity": Vector2(0.9, -0.9), "hp": 1 },
-					{ "position": Vector2(1450, 710), "velocity": Vector2(-0.8, -0.92), "hp": 1 },
+					{ "position": Vector2(360, 380), "velocity": Vector2(1, 0.6), "hp": 1, "behavior": "chase", "speed": ENEMY_SPEED },
+					{ "position": Vector2(1470, 360), "velocity": Vector2(-1, 0.66), "hp": 1, "behavior": "chase", "speed": ENEMY_SPEED },
+					{ "position": Vector2(400, 700), "velocity": Vector2(0.9, -0.9), "hp": 1, "behavior": "wander", "speed": ENEMY_SPEED * 1.08 },
+					{ "position": Vector2(1450, 710), "velocity": Vector2(-0.8, -0.92), "hp": 1, "behavior": "wander", "speed": ENEMY_SPEED * 1.08 },
 				],
 			},
 		],
@@ -619,9 +745,9 @@ func _build_room_pools() -> Dictionary:
 					Rect2(840, 724, 240, 56),
 				],
 				"enemies": [
-					{ "position": Vector2(960, 520), "velocity": Vector2(1, 0.4), "hp": 4 },
-					{ "position": Vector2(560, 500), "velocity": Vector2(1, -0.7), "hp": 1 },
-					{ "position": Vector2(1320, 520), "velocity": Vector2(-1, 0.75), "hp": 1 },
+					{ "position": Vector2(960, 520), "velocity": Vector2(1, 0.4), "hp": 4, "behavior": "elite", "speed": ENEMY_SPEED * 0.9 },
+					{ "position": Vector2(560, 500), "velocity": Vector2(1, -0.7), "hp": 1, "behavior": "chase", "speed": ENEMY_SPEED },
+					{ "position": Vector2(1320, 520), "velocity": Vector2(-1, 0.75), "hp": 1, "behavior": "chase", "speed": ENEMY_SPEED },
 				],
 			},
 			{
@@ -639,9 +765,9 @@ func _build_room_pools() -> Dictionary:
 					Rect2(1040, 520, 120, 44),
 				],
 				"enemies": [
-					{ "position": Vector2(960, 520), "velocity": Vector2(1, 0.25), "hp": 5 },
-					{ "position": Vector2(650, 420), "velocity": Vector2(0.9, -0.95), "hp": 2 },
-					{ "position": Vector2(1270, 620), "velocity": Vector2(-0.9, 0.95), "hp": 2 },
+					{ "position": Vector2(960, 520), "velocity": Vector2(1, 0.25), "hp": 5, "behavior": "elite", "speed": ENEMY_SPEED * 0.94 },
+					{ "position": Vector2(650, 420), "velocity": Vector2(0.9, -0.95), "hp": 2, "behavior": "chase", "speed": ENEMY_SPEED * 1.04 },
+					{ "position": Vector2(1270, 620), "velocity": Vector2(-0.9, 0.95), "hp": 2, "behavior": "chase", "speed": ENEMY_SPEED * 1.04 },
 				],
 			},
 			{
@@ -657,9 +783,9 @@ func _build_room_pools() -> Dictionary:
 					Rect2(1070, 420, 120, 220),
 				],
 				"enemies": [
-					{ "position": Vector2(960, 520), "velocity": Vector2(0.9, 0.58), "hp": 4 },
-					{ "position": Vector2(620, 520), "velocity": Vector2(1, -0.58), "hp": 2 },
-					{ "position": Vector2(1300, 520), "velocity": Vector2(-1, 0.58), "hp": 2 },
+					{ "position": Vector2(960, 520), "velocity": Vector2(0.9, 0.58), "hp": 4, "behavior": "elite", "speed": ENEMY_SPEED * 0.92 },
+					{ "position": Vector2(620, 520), "velocity": Vector2(1, -0.58), "hp": 2, "behavior": "wander", "speed": ENEMY_SPEED * 1.12 },
+					{ "position": Vector2(1300, 520), "velocity": Vector2(-1, 0.58), "hp": 2, "behavior": "wander", "speed": ENEMY_SPEED * 1.12 },
 				],
 			},
 		],
@@ -710,9 +836,9 @@ func _build_room_pools() -> Dictionary:
 					Rect2(870, 636, 180, 52),
 				],
 				"enemies": [
-					{ "position": Vector2(960, 520), "velocity": Vector2(0.95, 0.42), "hp": 8 },
-					{ "position": Vector2(620, 430), "velocity": Vector2(1.0, -0.72), "hp": 2 },
-					{ "position": Vector2(1290, 630), "velocity": Vector2(-1.0, 0.72), "hp": 2 },
+					{ "position": Vector2(960, 520), "velocity": Vector2(0.95, 0.42), "hp": 8, "behavior": "boss", "speed": ENEMY_SPEED * 0.82 },
+					{ "position": Vector2(620, 430), "velocity": Vector2(1.0, -0.72), "hp": 2, "behavior": "chase", "speed": ENEMY_SPEED },
+					{ "position": Vector2(1290, 630), "velocity": Vector2(-1.0, 0.72), "hp": 2, "behavior": "chase", "speed": ENEMY_SPEED },
 				],
 			},
 		],
@@ -772,11 +898,14 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 func _update_hud() -> void:
 	var cooldown := _current_shot_cooldown()
 	var charge_ratio := 1.0 - clampf(shot_timer / cooldown, 0.0, 1.0)
-	var charge := "READY" if shot_timer <= 0.0 else "%d%%" % roundi(charge_ratio * 100.0)
-	var boost := " / 定风珠 %.0fs" % shot_boost_timer if shot_boost_timer > 0.0 else ""
-	var speed_time := _get_player_speed_boost_time()
-	var speed_status := "%.0fs" % speed_time if speed_time > 0.0 else "-"
-	hud_label.text = "HP %d / 妖怪 %d / 攻击 %s%s / 奖励 %d / 迅 %s / 盾 %d / 道具 %s" % [player.health, enemies.size(), charge, boost, clear_reward_stacks, speed_status, shield_charges, last_reward_name]
+	var charge := "就绪" if shot_timer <= 0.0 else "%d%%" % roundi(charge_ratio * 100.0)
+	hud_label.text = "取经状态"
+	hud_hp_value.text = _build_health_marks()
+	hud_enemy_value.text = "%d" % enemies.size()
+	hud_attack_value.text = charge
+	hud_reward_value.text = "气 %d" % clear_reward_stacks
+	hud_hp_cell.color = Color(0.18, 0.035, 0.035, 0.92) if player.health <= 1 else Color(0.11, 0.045, 0.04, 0.86)
+	hud_attack_cell.color = Color(0.055, 0.13, 0.08, 0.88) if shot_timer <= 0.0 else Color(0.055, 0.085, 0.11, 0.86)
 	if shot_meter_fill != null:
 		shot_meter_fill.size.x = 240.0 * charge_ratio
 		shot_meter_fill.color = Color(0.36, 0.92, 0.48) if shot_timer <= 0.0 else Color(1.0, 0.76, 0.25)
@@ -815,6 +944,18 @@ func _set_ui_running_state(running: bool) -> void:
 	complete_overlay.visible = false
 	hud_panel.visible = running
 	hud_accent.visible = running
+	hud_hp_cell.visible = running
+	$CanvasLayer/HudHpIcon.visible = running
+	hud_hp_value.visible = running
+	$CanvasLayer/HudEnemyCell.visible = running
+	$CanvasLayer/HudEnemyIcon.visible = running
+	hud_enemy_value.visible = running
+	hud_attack_cell.visible = running
+	$CanvasLayer/HudAttackIcon.visible = running
+	hud_attack_value.visible = running
+	$CanvasLayer/HudRewardCell.visible = running
+	hud_reward_icon.visible = running
+	hud_reward_value.visible = running
 	objective_panel.visible = running
 	$CanvasLayer/HUD.visible = running
 	$CanvasLayer/Objective.visible = running
@@ -870,7 +1011,7 @@ func _update_room_info_panel(room_config: Dictionary) -> void:
 
 func _format_run_time(seconds: float) -> String:
 	var total := maxi(0, int(seconds))
-	var minutes := int(total / 60)
+	var minutes := floori(float(total) / 60.0)
 	var remain := total % 60
 	return "%02d:%02d" % [minutes, remain]
 
@@ -931,8 +1072,25 @@ func _update_reward_panel() -> void:
 	reward_effect_label.text = "效果：气势层数 %d / 定风珠 %.0fs / 腾云符 %.0fs" % [clear_reward_stacks, shot_boost_timer, speed_time]
 	reward_state_label.text = "状态：定风珠%s / 腾云符%s / 护身符%s" % [shot_state, speed_state, shield_state]
 	reward_accent.color = Color(0.34, 0.84, 0.48, 1) if clear_reward_stacks > 0 else Color(0.32, 0.72, 0.92, 1)
+	_update_reward_icon()
 
 func _get_player_speed_boost_time() -> float:
 	if player != null and player.has_method("get_speed_boost_time"):
 		return float(player.call("get_speed_boost_time"))
 	return 0.0
+
+func _build_health_marks() -> String:
+	var marks := ""
+	for i in range(3):
+		marks += "■" if i < player.health else "□"
+	return marks
+
+func _update_reward_icon() -> void:
+	var icon_key := "pickup_shot"
+	if last_reward_name == "腾云符":
+		icon_key = "pickup_speed"
+	elif last_reward_name == "护身符":
+		icon_key = "pickup_shield"
+	var texture: Texture2D = art_textures.get(icon_key)
+	if hud_reward_icon != null:
+		hud_reward_icon.texture = texture
