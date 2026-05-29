@@ -7,6 +7,8 @@ const BULLET_LIFETIME := 1.25
 const BASE_SHOT_COOLDOWN := 0.75
 const BOOSTED_SHOT_COOLDOWN := 0.38
 const SHOT_BOOST_DURATION := 7.0
+const SPEED_BOOST_DURATION := 7.0
+const SPEED_BOOST_MULTIPLIER := 1.3
 const ENEMY_SPEED := 130.0
 const PLAYER_SIZE := Vector2(36, 36)
 const ENEMY_SIZE := Vector2(42, 42)
@@ -18,6 +20,14 @@ const ENEMY_COLOR := Color(0.78, 0.18, 0.17)
 const ELITE_COLOR := Color(0.88, 0.32, 0.16)
 const LOCKED_EXIT_COLOR := Color(0.15, 0.18, 0.2)
 const OPEN_EXIT_COLOR := Color(0.28, 0.9, 0.42)
+const PLAYER_ART_PATH := "res://assets/player_monk.svg"
+const ENEMY_ART_PATH := "res://assets/enemy_imp.svg"
+const ELITE_ART_PATH := "res://assets/enemy_elite.svg"
+const BOSS_ART_PATH := "res://assets/boss_blackwind.svg"
+const GATE_ART_PATH := "res://assets/gate_green.svg"
+const PICKUP_SHOT_ART_PATH := "res://assets/pickup_shot.svg"
+const PICKUP_SPEED_ART_PATH := "res://assets/pickup_speed.svg"
+const PICKUP_SHIELD_ART_PATH := "res://assets/pickup_shield.svg"
 
 var shot_timer := 0.0
 var shot_boost_timer := 0.0
@@ -38,8 +48,12 @@ var started := false
 var paused := false
 var room_reward_granted := false
 var clear_reward_stacks := 0
+var shield_charges := 0
+var last_reward_name := "无"
 var run_time := 0.0
+var pickup_cue_timer := 0.0
 var shot_meter_fill: ColorRect
+var art_textures: Dictionary = {}
 
 @onready var player: CharacterBody2D = $Player
 @onready var room_border: Node2D = $RoomBorder
@@ -67,14 +81,22 @@ var shot_meter_fill: ColorRect
 @onready var complete_overlay: ColorRect = $CanvasLayer/CompleteOverlay
 @onready var complete_summary_label: Label = $CanvasLayer/CompleteOverlay/CompletePanel/CompleteSummary
 @onready var complete_route_label: Label = $CanvasLayer/CompleteOverlay/CompletePanel/CompleteRoute
+@onready var reward_panel: ColorRect = $CanvasLayer/RewardPanel
+@onready var reward_accent: ColorRect = $CanvasLayer/RewardAccent
+@onready var reward_name_label: Label = $CanvasLayer/RewardName
+@onready var reward_effect_label: Label = $CanvasLayer/RewardEffect
+@onready var reward_state_label: Label = $CanvasLayer/RewardState
+@onready var pickup_cue_label: Label = $CanvasLayer/PickupCue
 @onready var start_overlay: ColorRect = $CanvasLayer/StartOverlay
 @onready var pause_overlay: ColorRect = $CanvasLayer/PauseOverlay
 
 func _ready() -> void:
 	randomize()
+	_load_art_textures()
 	player.room_min = ROOM_MIN
 	player.room_max = ROOM_MAX
 	player.hurt.connect(_on_player_hurt)
+	_attach_art(player.get_node("Body"), "player")
 	_draw_room_border()
 	room_pools = _build_room_pools()
 	room_templates = _build_room_route()
@@ -82,6 +104,7 @@ func _ready() -> void:
 	_update_route_preview()
 	_load_room(0, true)
 	_set_ui_running_state(false)
+	_update_reward_panel()
 	_update_hud()
 
 func _physics_process(delta: float) -> void:
@@ -95,6 +118,7 @@ func _physics_process(delta: float) -> void:
 	shot_timer = maxf(0.0, shot_timer - delta)
 	shot_boost_timer = maxf(0.0, shot_boost_timer - delta)
 	message_timer = maxf(0.0, message_timer - delta)
+	pickup_cue_timer = maxf(0.0, pickup_cue_timer - delta)
 	_handle_shoot_input()
 	_update_bullets(delta)
 	_update_enemies(delta)
@@ -102,6 +126,7 @@ func _physics_process(delta: float) -> void:
 	_check_pickup_contact()
 	_check_enemy_contact()
 	_check_door_contact()
+	_update_pickup_cue_visibility()
 	_update_hud()
 
 func _handle_shoot_input() -> void:
@@ -172,6 +197,7 @@ func _spawn_enemy(enemy_position: Vector2, enemy_velocity: Vector2, hp: int) -> 
 	enemy.size = ENEMY_SIZE if hp == 1 else Vector2(58, 58)
 	var base_color := ENEMY_COLOR if hp == 1 else ELITE_COLOR
 	enemy.color = base_color
+	_attach_art(enemy, _get_enemy_art_key(hp))
 	var hp_back := ColorRect.new()
 	hp_back.name = "HpBack"
 	hp_back.position = Vector2(0.0, -10.0)
@@ -222,6 +248,10 @@ func _check_enemy_contact() -> void:
 	for enemy in enemies:
 		var node: ColorRect = enemy.node
 		if player_rect.intersects(Rect2(node.position, node.size)):
+			if shield_charges > 0:
+				shield_charges -= 1
+				_show_room_message("护身符触发：抵挡一次伤害", 1.1)
+				return
 			player.take_hit()
 			if not player.is_alive():
 				ended = true
@@ -245,16 +275,38 @@ func _damage_enemy(index: int, hit_direction: Vector2) -> void:
 		_show_room_message("命中：妖怪被击退", 0.8)
 
 func _spawn_pickup(center_position: Vector2) -> void:
+	_spawn_reward_pickup(center_position, _roll_room_reward())
+
+func _spawn_reward_pickup(center_position: Vector2, reward_type: String) -> void:
 	var pickup := ColorRect.new()
 	pickup.size = PICKUP_SIZE
 	pickup.position = center_position - PICKUP_SIZE / 2.0
-	pickup.color = Color(0.2, 0.68, 1.0)
+	var reward_name := "定风珠"
+	var reward_color := Color(0.2, 0.68, 1.0)
+	if reward_type == "speed":
+		reward_name = "腾云符"
+		reward_color = Color(0.25, 0.88, 0.62)
+	elif reward_type == "shield":
+		reward_name = "护身符"
+		reward_color = Color(0.98, 0.84, 0.3)
+	pickup.color = reward_color
+	_attach_art(pickup, _get_pickup_art_key(reward_type))
 	pickup.add_to_group("pickup")
 	add_child(pickup)
 	pickups.append({
 		"node": pickup,
 		"life": 9.0,
+		"type": reward_type,
+		"name": reward_name,
 	})
+
+func _roll_room_reward() -> String:
+	var roll := randi() % 3
+	if roll == 0:
+		return "shot"
+	if roll == 1:
+		return "speed"
+	return "shield"
 
 func _update_pickups(delta: float) -> void:
 	for i in range(pickups.size() - 1, -1, -1):
@@ -272,9 +324,21 @@ func _check_pickup_contact() -> void:
 		var pickup := pickups[i]
 		var node: ColorRect = pickup.node
 		if player_rect.intersects(Rect2(node.position, node.size)):
-			shot_boost_timer = SHOT_BOOST_DURATION
-			shot_timer = minf(shot_timer, BOOSTED_SHOT_COOLDOWN)
-			_show_room_message("拾取定风珠：%.0f 秒内弹速提升" % SHOT_BOOST_DURATION, 1.8)
+			var reward_type := String(pickup.get("type", "shot"))
+			var reward_name := String(pickup.get("name", "定风珠"))
+			if reward_type == "speed":
+				player.apply_speed_boost(SPEED_BOOST_DURATION, SPEED_BOOST_MULTIPLIER)
+				_show_room_message("拾取%s：%.0f 秒内移速提升" % [reward_name, SPEED_BOOST_DURATION], 1.8)
+			elif reward_type == "shield":
+				shield_charges = min(shield_charges + 1, 2)
+				_show_room_message("拾取%s：护盾+1" % reward_name, 1.8)
+			else:
+				shot_boost_timer = SHOT_BOOST_DURATION
+				shot_timer = minf(shot_timer, BOOSTED_SHOT_COOLDOWN)
+				_show_room_message("拾取%s：%.0f 秒内弹速提升" % [reward_name, SHOT_BOOST_DURATION], 1.8)
+			last_reward_name = reward_name
+			_show_pickup_cue(_build_pickup_cue_text(reward_type, reward_name))
+			_update_reward_panel()
 			node.queue_free()
 			pickups.remove_at(i)
 
@@ -292,6 +356,7 @@ func _spawn_door(door_position: Vector2) -> void:
 	door.position = door_position
 	door.size = Vector2(56, 56)
 	door.color = OPEN_EXIT_COLOR
+	_attach_art(door, "gate")
 	doors_root.add_child(door)
 
 func _check_door_contact() -> void:
@@ -348,15 +413,21 @@ func _bullet_hit_enemy_index(node: ColorRect) -> int:
 	return -1
 
 func _bullet_hits_wall(node: ColorRect) -> bool:
+	var tree := get_tree()
+	if tree == null:
+		return false
 	var bullet_rect := Rect2(node.position, node.size)
-	for wall in get_tree().get_nodes_in_group("wall"):
+	for wall in tree.get_nodes_in_group("wall"):
 		if bullet_rect.intersects(Rect2(wall.position, wall.size)):
 			return true
 	return false
 
 func _enemy_hits_wall(node: ColorRect) -> bool:
+	var tree := get_tree()
+	if tree == null:
+		return false
 	var enemy_rect := Rect2(node.position, node.size)
-	for wall in get_tree().get_nodes_in_group("wall"):
+	for wall in tree.get_nodes_in_group("wall"):
 		if enemy_rect.intersects(Rect2(wall.position, wall.size)):
 			return true
 	return false
@@ -392,12 +463,75 @@ func _grant_room_clear_reward() -> void:
 		return
 	room_reward_granted = true
 	clear_reward_stacks = min(clear_reward_stacks + 1, 5)
+	last_reward_name = "气势加持"
+	_show_pickup_cue("获得气势加持：弹速提升（常驻）")
 	_show_room_message("清房奖励：气势+1（弹速提升）", 1.6)
+	_update_reward_panel()
+
+func _spawn_rest_room_reward() -> void:
+	if current_room_type != "rest":
+		return
+	if not pickups.is_empty():
+		return
+	_spawn_reward_pickup(Vector2((ROOM_MIN.x + ROOM_MAX.x) * 0.5, (ROOM_MIN.y + ROOM_MAX.y) * 0.5), _roll_room_reward())
+	_show_room_message("休整馈赠：触碰道具后再出发", 1.8)
 
 func _show_room_message(message: String, duration: float) -> void:
 	room_message = message
 	message_timer = duration
 	objective_label.text = room_message
+
+func _load_art_textures() -> void:
+	art_textures = {
+		"player": _load_svg_texture(PLAYER_ART_PATH),
+		"enemy": _load_svg_texture(ENEMY_ART_PATH),
+		"elite": _load_svg_texture(ELITE_ART_PATH),
+		"boss": _load_svg_texture(BOSS_ART_PATH),
+		"gate": _load_svg_texture(GATE_ART_PATH),
+		"pickup_shot": _load_svg_texture(PICKUP_SHOT_ART_PATH),
+		"pickup_speed": _load_svg_texture(PICKUP_SPEED_ART_PATH),
+		"pickup_shield": _load_svg_texture(PICKUP_SHIELD_ART_PATH),
+	}
+
+func _load_svg_texture(path: String) -> Texture2D:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return null
+	var svg_text := file.get_as_text()
+	var image := Image.new()
+	var error := image.load_svg_from_string(svg_text)
+	if error != OK:
+		return null
+	return ImageTexture.create_from_image(image)
+
+func _attach_art(target: ColorRect, art_key: String) -> void:
+	var texture: Texture2D = art_textures.get(art_key)
+	if texture == null:
+		return
+	target.color.a = 0.42
+	var art := TextureRect.new()
+	art.name = "Art"
+	art.texture = texture
+	art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	art.position = Vector2.ZERO
+	art.size = target.size
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	target.add_child(art)
+
+func _get_enemy_art_key(hp: int) -> String:
+	if hp >= 8:
+		return "boss"
+	if hp > 1:
+		return "elite"
+	return "enemy"
+
+func _get_pickup_art_key(reward_type: String) -> String:
+	if reward_type == "speed":
+		return "pickup_speed"
+	if reward_type == "shield":
+		return "pickup_shield"
+	return "pickup_shot"
 
 func _clear_node_children(node: Node) -> void:
 	for child in node.get_children():
@@ -625,8 +759,10 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 	current_room_type = String(room_config.get("type", "combat"))
 	_update_room_info_panel(room_config)
 	_update_route_preview()
+	_update_reward_panel()
 	_spawn_walls(room_config.walls)
 	_spawn_enemies(room_config.enemies)
+	_spawn_rest_room_reward()
 	player.global_position = Vector2(ROOM_MIN.x + 88.0, (ROOM_MIN.y + ROOM_MAX.y) * 0.5)
 	if room_config.enemies.is_empty():
 		_open_doors()
@@ -638,7 +774,9 @@ func _update_hud() -> void:
 	var charge_ratio := 1.0 - clampf(shot_timer / cooldown, 0.0, 1.0)
 	var charge := "READY" if shot_timer <= 0.0 else "%d%%" % roundi(charge_ratio * 100.0)
 	var boost := " / 定风珠 %.0fs" % shot_boost_timer if shot_boost_timer > 0.0 else ""
-	hud_label.text = "HP %d / 妖怪 %d / 攻击 %s%s / 奖励 %d" % [player.health, enemies.size(), charge, boost, clear_reward_stacks]
+	var speed_time := _get_player_speed_boost_time()
+	var speed_status := "%.0fs" % speed_time if speed_time > 0.0 else "-"
+	hud_label.text = "HP %d / 妖怪 %d / 攻击 %s%s / 奖励 %d / 迅 %s / 盾 %d / 道具 %s" % [player.health, enemies.size(), charge, boost, clear_reward_stacks, speed_status, shield_charges, last_reward_name]
 	if shot_meter_fill != null:
 		shot_meter_fill.size.x = 240.0 * charge_ratio
 		shot_meter_fill.color = Color(0.36, 0.92, 0.48) if shot_timer <= 0.0 else Color(1.0, 0.76, 0.25)
@@ -694,14 +832,24 @@ func _set_ui_running_state(running: bool) -> void:
 	route_accent.visible = running
 	$CanvasLayer/RouteTitle.visible = running
 	route_preview_label.visible = running
+	reward_panel.visible = running
+	reward_accent.visible = running
+	$CanvasLayer/RewardTitle.visible = running
+	reward_name_label.visible = running
+	reward_effect_label.visible = running
+	reward_state_label.visible = running
+	pickup_cue_label.visible = running and pickup_cue_timer > 0.0
 	$ExitHint.visible = running
 
 func _start_run() -> void:
 	started = true
 	paused = false
 	run_time = 0.0
+	pickup_cue_timer = 0.0
+	pickup_cue_label.visible = false
 	complete_overlay.visible = false
 	_update_route_preview()
+	_update_reward_panel()
 	_set_ui_running_state(true)
 	_set_paused_state(false)
 	_show_room_message("试炼开始：清空房间，破除封印。", 1.6)
@@ -743,9 +891,48 @@ func _get_route_lines() -> PackedStringArray:
 func _update_route_preview() -> void:
 	var lines := _get_route_lines()
 	route_preview_label.text = "\n".join(lines)
+	_update_reward_panel()
 
 func _show_complete_overlay() -> void:
 	complete_overlay.visible = true
 	var total_rooms := room_templates.size()
 	complete_summary_label.text = "总计 %d 房 / 用时 %s / 剩余生命 %d" % [total_rooms, _format_run_time(run_time), player.health]
 	complete_route_label.text = "路线：\n%s" % "\n".join(_get_route_lines())
+
+func _build_pickup_cue_text(reward_type: String, reward_name: String) -> String:
+	if reward_type == "speed":
+		return "获得%s：移速提升（临时）" % reward_name
+	if reward_type == "shield":
+		return "获得%s：护盾层数 +1" % reward_name
+	return "获得%s：弹速提升（临时）" % reward_name
+
+func _show_pickup_cue(text_value: String) -> void:
+	pickup_cue_label.text = text_value
+	pickup_cue_timer = 1.5
+	pickup_cue_label.visible = true
+
+func _update_pickup_cue_visibility() -> void:
+	pickup_cue_label.visible = pickup_cue_timer > 0.0 and started and not paused
+
+func _update_reward_panel() -> void:
+	var reward_name := last_reward_name
+	if reward_name == "" or reward_name == "无":
+		reward_name_label.text = "当前法宝：未持有"
+		reward_effect_label.text = "效果：等待拾取灵珠"
+		reward_state_label.text = "状态：未获得"
+		reward_accent.color = Color(0.32, 0.72, 0.92, 1)
+		return
+
+	var shot_state := "临时" if shot_boost_timer > 0.0 else "未激活"
+	var speed_time := _get_player_speed_boost_time()
+	var speed_state := "临时" if speed_time > 0.0 else "未激活"
+	var shield_state := "可抵伤 %d 次" % shield_charges if shield_charges > 0 else "未持有"
+	reward_name_label.text = "当前法宝：%s" % reward_name
+	reward_effect_label.text = "效果：气势层数 %d / 定风珠 %.0fs / 腾云符 %.0fs" % [clear_reward_stacks, shot_boost_timer, speed_time]
+	reward_state_label.text = "状态：定风珠%s / 腾云符%s / 护身符%s" % [shot_state, speed_state, shield_state]
+	reward_accent.color = Color(0.34, 0.84, 0.48, 1) if clear_reward_stacks > 0 else Color(0.32, 0.72, 0.92, 1)
+
+func _get_player_speed_boost_time() -> float:
+	if player != null and player.has_method("get_speed_boost_time"):
+		return float(player.call("get_speed_boost_time"))
+	return 0.0
