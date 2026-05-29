@@ -61,6 +61,7 @@ var room_reward_granted := false
 var clear_reward_stacks := 0
 var shield_charges := 0
 var last_reward_name := "无"
+var collected_rewards: Array[String] = []
 var run_time := 0.0
 var pickup_cue_timer := 0.0
 var hazard_contact_timer := 0.0
@@ -101,11 +102,15 @@ var art_textures: Dictionary = {}
 @onready var complete_overlay: ColorRect = $CanvasLayer/CompleteOverlay
 @onready var complete_summary_label: Label = $CanvasLayer/CompleteOverlay/CompletePanel/CompleteSummary
 @onready var complete_route_label: Label = $CanvasLayer/CompleteOverlay/CompletePanel/CompleteRoute
+@onready var complete_loot_label: Label = $CanvasLayer/CompleteOverlay/CompletePanel/CompleteLoot
 @onready var reward_panel: ColorRect = $CanvasLayer/RewardPanel
 @onready var reward_accent: ColorRect = $CanvasLayer/RewardAccent
 @onready var reward_name_label: Label = $CanvasLayer/RewardName
 @onready var reward_effect_label: Label = $CanvasLayer/RewardEffect
 @onready var reward_state_label: Label = $CanvasLayer/RewardState
+@onready var loot_panel: ColorRect = $CanvasLayer/LootPanel
+@onready var loot_title_label: Label = $CanvasLayer/LootTitle
+@onready var loot_list_label: Label = $CanvasLayer/LootList
 @onready var pickup_cue_label: Label = $CanvasLayer/PickupCue
 @onready var start_overlay: ColorRect = $CanvasLayer/StartOverlay
 @onready var pause_overlay: ColorRect = $CanvasLayer/PauseOverlay
@@ -477,7 +482,7 @@ func _damage_enemy(index: int, hit_direction: Vector2) -> void:
 func _spawn_pickup(center_position: Vector2) -> void:
 	_spawn_reward_pickup(center_position, _roll_room_reward())
 
-func _spawn_reward_pickup(center_position: Vector2, reward_type: String) -> void:
+func _spawn_reward_pickup(center_position: Vector2, reward_type: String, options: Dictionary = {}) -> void:
 	var pickup := ColorRect.new()
 	pickup.size = PICKUP_SIZE
 	pickup.position = center_position - PICKUP_SIZE / 2.0
@@ -495,9 +500,10 @@ func _spawn_reward_pickup(center_position: Vector2, reward_type: String) -> void
 	add_child(pickup)
 	pickups.append({
 		"node": pickup,
-		"life": 9.0,
+		"life": float(options.get("life", 9.0)),
 		"type": reward_type,
 		"name": reward_name,
+		"choice_group": String(options.get("choice_group", "")),
 	})
 
 func _roll_room_reward() -> String:
@@ -518,6 +524,16 @@ func _update_pickups(delta: float) -> void:
 			node.queue_free()
 			pickups.remove_at(i)
 
+func _clear_pickup_choice_group(choice_group: String) -> void:
+	for i in range(pickups.size() - 1, -1, -1):
+		var pickup := pickups[i]
+		if String(pickup.get("choice_group", "")) != choice_group:
+			continue
+		var node: ColorRect = pickup.node
+		if is_instance_valid(node):
+			node.queue_free()
+		pickups.remove_at(i)
+
 func _check_pickup_contact() -> void:
 	var player_rect := Rect2(player.position - PLAYER_SIZE / 2.0, PLAYER_SIZE)
 	for i in range(pickups.size() - 1, -1, -1):
@@ -537,10 +553,16 @@ func _check_pickup_contact() -> void:
 				shot_timer = minf(shot_timer, BOOSTED_SHOT_COOLDOWN)
 				_show_room_message("拾取%s：%.0f 秒内弹速提升" % [reward_name, SHOT_BOOST_DURATION], 1.8)
 			last_reward_name = reward_name
+			_record_reward(reward_name)
 			_show_pickup_cue(_build_pickup_cue_text(reward_type, reward_name))
 			_update_reward_panel()
 			node.queue_free()
 			pickups.remove_at(i)
+			var choice_group := String(pickup.get("choice_group", ""))
+			if choice_group != "":
+				_clear_pickup_choice_group(choice_group)
+				_show_room_message("休整选择已定：另一路馈赠消散", 1.6)
+			return
 
 func _open_doors() -> void:
 	if doors_open:
@@ -664,6 +686,7 @@ func _grant_room_clear_reward() -> void:
 	room_reward_granted = true
 	clear_reward_stacks = min(clear_reward_stacks + 1, 5)
 	last_reward_name = "气势加持"
+	_record_reward(last_reward_name)
 	_show_pickup_cue("获得气势加持：弹速提升（常驻）")
 	_show_room_message("清房奖励：气势+1（弹速提升）", 1.6)
 	_update_reward_panel()
@@ -673,8 +696,27 @@ func _spawn_rest_room_reward() -> void:
 		return
 	if not pickups.is_empty():
 		return
-	_spawn_reward_pickup(Vector2((ROOM_MIN.x + ROOM_MAX.x) * 0.5, (ROOM_MIN.y + ROOM_MAX.y) * 0.5), _roll_room_reward())
-	_show_room_message("休整馈赠：触碰道具后再出发", 1.8)
+	var reward_options := _roll_rest_reward_choices()
+	var center_y := (ROOM_MIN.y + ROOM_MAX.y) * 0.5
+	var choice_group := "rest_%d" % current_room_index
+	_spawn_reward_pickup(Vector2(ROOM_MIN.x + 680.0, center_y), reward_options[0], {
+		"choice_group": choice_group,
+		"life": 999.0,
+	})
+	_spawn_reward_pickup(Vector2(ROOM_MAX.x - 680.0, center_y), reward_options[1], {
+		"choice_group": choice_group,
+		"life": 999.0,
+	})
+	_show_room_message("休整馈赠：二选一，触碰后另一个消失", 2.2)
+
+func _roll_rest_reward_choices() -> Array[String]:
+	var first := _roll_room_reward()
+	var second := _roll_room_reward()
+	var guard := 0
+	while second == first and guard < 8:
+		second = _roll_room_reward()
+		guard += 1
+	return [first, second]
 
 func _show_room_message(message: String, duration: float) -> void:
 	room_message = message
@@ -1072,14 +1114,16 @@ func _set_ui_running_state(running: bool) -> void:
 	reward_name_label.visible = running
 	reward_effect_label.visible = running
 	reward_state_label.visible = running
+	loot_panel.visible = running
+	loot_title_label.visible = running
+	loot_list_label.visible = running
 	pickup_cue_label.visible = running and pickup_cue_timer > 0.0
 	$ExitHint.visible = running
 
 func _start_run() -> void:
 	started = true
 	paused = false
-	run_time = 0.0
-	pickup_cue_timer = 0.0
+	_reset_run_state()
 	pickup_cue_label.visible = false
 	complete_overlay.visible = false
 	_update_route_preview()
@@ -1087,6 +1131,16 @@ func _start_run() -> void:
 	_set_ui_running_state(true)
 	_set_paused_state(false)
 	_show_room_message("试炼开始：清空房间，破除封印。", 1.6)
+
+func _reset_run_state() -> void:
+	run_time = 0.0
+	pickup_cue_timer = 0.0
+	clear_reward_stacks = 0
+	shield_charges = 0
+	shot_boost_timer = 0.0
+	collected_rewards.clear()
+	last_reward_name = "无"
+	_update_loot_list()
 
 func _set_paused_state(value: bool) -> void:
 	paused = value
@@ -1131,6 +1185,7 @@ func _show_complete_overlay() -> void:
 	complete_overlay.visible = true
 	var total_rooms := room_templates.size()
 	complete_summary_label.text = "总计 %d 房 / 用时 %s / 剩余生命 %d" % [total_rooms, _format_run_time(run_time), player.health]
+	complete_loot_label.text = "战利：气势 %d / 法宝 %s" % [clear_reward_stacks, _get_collected_reward_text()]
 	complete_route_label.text = "路线复盘：\n%s" % "\n".join(_get_route_lines())
 
 func _draw_route_map() -> void:
@@ -1233,6 +1288,7 @@ func _update_reward_panel() -> void:
 		reward_name_label.text = "当前法宝：未持有"
 		reward_effect_label.text = "效果：等待拾取灵珠"
 		reward_state_label.text = "状态：未获得"
+		_update_loot_list()
 		reward_accent.color = Color(0.32, 0.72, 0.92, 1)
 		return
 
@@ -1243,6 +1299,7 @@ func _update_reward_panel() -> void:
 	reward_name_label.text = "当前法宝：%s" % reward_name
 	reward_effect_label.text = "效果：气势层数 %d / 定风珠 %.0fs / 腾云符 %.0fs" % [clear_reward_stacks, shot_boost_timer, speed_time]
 	reward_state_label.text = "状态：定风珠%s / 腾云符%s / 护身符%s" % [shot_state, speed_state, shield_state]
+	_update_loot_list()
 	reward_accent.color = Color(0.34, 0.84, 0.48, 1) if clear_reward_stacks > 0 else Color(0.32, 0.72, 0.92, 1)
 	_update_reward_icon()
 
@@ -1266,3 +1323,21 @@ func _update_reward_icon() -> void:
 	var texture: Texture2D = art_textures.get(icon_key)
 	if hud_reward_icon != null:
 		hud_reward_icon.texture = texture
+
+func _record_reward(reward_name: String) -> void:
+	if reward_name == "" or reward_name == "无":
+		return
+	if not collected_rewards.has(reward_name):
+		collected_rewards.append(reward_name)
+	_update_loot_list()
+
+func _update_loot_list() -> void:
+	if loot_list_label == null:
+		return
+	var reward_text := _get_collected_reward_text()
+	loot_list_label.text = "法宝：%s / 气势 %d" % [reward_text, clear_reward_stacks]
+
+func _get_collected_reward_text() -> String:
+	if collected_rewards.is_empty():
+		return "无"
+	return "、".join(collected_rewards)
