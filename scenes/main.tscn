@@ -373,13 +373,19 @@ text = "本局路线"
 
 [node name="RoutePreview" type="Label" parent="CanvasLayer"]
 offset_left = 1392.0
-offset_top = 350.0
+offset_top = 454.0
 offset_right = 1872.0
 offset_bottom = 478.0
 theme_override_colors/font_color = Color(0.74, 0.82, 0.9, 1)
-theme_override_font_sizes/font_size = 16
-text = "1. 普通战斗\n2. 精英房\n3. 宝物休整"
+theme_override_font_sizes/font_size = 14
+text = "亮=当前 / 宝=休整 / 王=妖王"
 autowrap_mode = 3
+
+[node name="RouteMapRoot" type="Control" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 350.0
+offset_right = 1872.0
+offset_bottom = 448.0
 
 [node name="CompleteOverlay" type="ColorRect" parent="CanvasLayer"]
 visible = false

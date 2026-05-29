@@ -16,6 +16,7 @@ const BULLET_SIZE := Vector2(18, 10)
 const PICKUP_SIZE := Vector2(30, 30)
 const HIT_FLASH_TIME := 0.16
 const HIT_KNOCKBACK := 260.0
+const HAZARD_CONTACT_COOLDOWN := 0.95
 const ENEMY_CHASE_STEER := 90.0
 const ENEMY_WANDER_STEER := 34.0
 const ELITE_RUSH_INTERVAL := 3.2
@@ -45,6 +46,7 @@ var room_message := ""
 var enemies: Array[Dictionary] = []
 var bullets: Array[Dictionary] = []
 var pickups: Array[Dictionary] = []
+var hazards: Array[Dictionary] = []
 var doors_open := false
 var ended := false
 var room_complete := false
@@ -61,6 +63,7 @@ var shield_charges := 0
 var last_reward_name := "无"
 var run_time := 0.0
 var pickup_cue_timer := 0.0
+var hazard_contact_timer := 0.0
 var shot_meter_fill: ColorRect
 var art_textures: Dictionary = {}
 
@@ -93,6 +96,7 @@ var art_textures: Dictionary = {}
 @onready var room_lore_label: Label = $CanvasLayer/RoomLore
 @onready var route_panel: ColorRect = $CanvasLayer/RoutePanel
 @onready var route_accent: ColorRect = $CanvasLayer/RouteAccent
+@onready var route_map_root: Control = $CanvasLayer/RouteMapRoot
 @onready var route_preview_label: Label = $CanvasLayer/RoutePreview
 @onready var complete_overlay: ColorRect = $CanvasLayer/CompleteOverlay
 @onready var complete_summary_label: Label = $CanvasLayer/CompleteOverlay/CompletePanel/CompleteSummary
@@ -136,11 +140,14 @@ func _physics_process(delta: float) -> void:
 	shot_boost_timer = maxf(0.0, shot_boost_timer - delta)
 	message_timer = maxf(0.0, message_timer - delta)
 	pickup_cue_timer = maxf(0.0, pickup_cue_timer - delta)
+	hazard_contact_timer = maxf(0.0, hazard_contact_timer - delta)
 	_handle_shoot_input()
 	_update_bullets(delta)
 	_update_enemies(delta)
+	_update_hazards(delta)
 	_update_pickups(delta)
 	_check_pickup_contact()
+	_check_hazard_contact()
 	_check_enemy_contact()
 	_check_door_contact()
 	_update_pickup_cue_visibility()
@@ -203,6 +210,73 @@ func _spawn_walls(walls: Array) -> void:
 		wall.color = Color(0.34, 0.35, 0.38)
 		wall.add_to_group("wall")
 		walls_root.add_child(wall)
+
+func _spawn_hazards(configs: Array) -> void:
+	for config in configs:
+		var hazard_type := String(config.get("type", "spike"))
+		var hazard := ColorRect.new()
+		var rect: Rect2 = config.get("rect", Rect2(ROOM_MIN + Vector2(220, 220), Vector2(120, 80)))
+		hazard.position = rect.position
+		hazard.size = rect.size
+		hazard.color = _get_hazard_color(hazard_type, 0.0)
+		walls_root.add_child(hazard)
+		hazards.append({
+			"node": hazard,
+			"type": hazard_type,
+			"phase": randf_range(0.0, TAU),
+			"armed": bool(config.get("armed", true)),
+		})
+
+func _update_hazards(delta: float) -> void:
+	for hazard in hazards:
+		hazard.phase += delta
+		var node: ColorRect = hazard.node
+		node.color = _get_hazard_color(String(hazard.get("type", "spike")), float(hazard.phase))
+
+func _get_hazard_color(hazard_type: String, phase: float) -> Color:
+	var pulse := 0.08 * sin(phase * 5.0)
+	if hazard_type == "fire":
+		return Color(0.95, 0.22 + pulse, 0.08, 0.58)
+	if hazard_type == "wind":
+		return Color(0.42, 0.7, 0.95, 0.38 + pulse)
+	return Color(0.72, 0.12, 0.16, 0.52 + pulse)
+
+func _clear_hazards() -> void:
+	for hazard in hazards:
+		var node: ColorRect = hazard.node
+		if is_instance_valid(node):
+			node.queue_free()
+	hazards.clear()
+
+func _check_hazard_contact() -> void:
+	if hazard_contact_timer > 0.0:
+		return
+	var player_rect := Rect2(player.position - PLAYER_SIZE / 2.0, PLAYER_SIZE)
+	for hazard in hazards:
+		if not bool(hazard.get("armed", true)):
+			continue
+		var node: ColorRect = hazard.node
+		if player_rect.intersects(Rect2(node.position, node.size)):
+			hazard_contact_timer = HAZARD_CONTACT_COOLDOWN
+			if shield_charges > 0:
+				shield_charges -= 1
+				_show_room_message("护身符挡下机关伤害", 1.1)
+				_update_reward_panel()
+				return
+			if player.take_hit():
+				_show_room_message(_get_hazard_hit_message(String(hazard.get("type", "spike"))), 1.2)
+				_update_reward_panel()
+			if not player.is_alive():
+				ended = true
+				objective_label.text = "取经受阻：按 R 重开"
+			return
+
+func _get_hazard_hit_message(hazard_type: String) -> String:
+	if hazard_type == "fire":
+		return "机关灼伤：短暂无敌"
+	if hazard_type == "wind":
+		return "黑风卷身：短暂无敌"
+	return "机关刺伤：短暂无敌"
 
 func _spawn_enemies(configs: Array) -> void:
 	for config in configs:
@@ -671,6 +745,7 @@ func _clone_room_template(room_template: Dictionary) -> Dictionary:
 		"lore": room_template.lore if room_template.has("lore") else "",
 		"walls": room_template.walls.duplicate(true),
 		"enemies": room_template.enemies.duplicate(true),
+		"hazards": room_template.hazards.duplicate(true) if room_template.has("hazards") else [],
 		"type": room_template.type,
 	}
 
@@ -700,6 +775,10 @@ func _build_room_pools() -> Dictionary:
 					Rect2(1190, 210, 260, 48),
 					Rect2(1190, 810, 260, 48),
 					Rect2(890, 440, 140, 200),
+				],
+				"hazards": [
+					{ "type": "spike", "rect": Rect2(760, 300, 110, 94) },
+					{ "type": "spike", "rect": Rect2(1050, 686, 110, 94) },
 				],
 				"enemies": [
 					{ "position": Vector2(360, 250), "velocity": Vector2(1, 0.75), "hp": 1, "behavior": "chase", "speed": ENEMY_SPEED * 0.95 },
@@ -763,6 +842,10 @@ func _build_room_pools() -> Dictionary:
 					Rect2(1400, 786, 160, 44),
 					Rect2(760, 520, 120, 44),
 					Rect2(1040, 520, 120, 44),
+				],
+				"hazards": [
+					{ "type": "fire", "rect": Rect2(700, 340, 120, 110) },
+					{ "type": "fire", "rect": Rect2(1100, 630, 120, 110) },
 				],
 				"enemies": [
 					{ "position": Vector2(960, 520), "velocity": Vector2(1, 0.25), "hp": 5, "behavior": "elite", "speed": ENEMY_SPEED * 0.94 },
@@ -835,6 +918,10 @@ func _build_room_pools() -> Dictionary:
 					Rect2(870, 390, 180, 52),
 					Rect2(870, 636, 180, 52),
 				],
+				"hazards": [
+					{ "type": "wind", "rect": Rect2(760, 470, 120, 140) },
+					{ "type": "wind", "rect": Rect2(1040, 470, 120, 140) },
+				],
 				"enemies": [
 					{ "position": Vector2(960, 520), "velocity": Vector2(0.95, 0.42), "hp": 8, "behavior": "boss", "speed": ENEMY_SPEED * 0.82 },
 					{ "position": Vector2(620, 430), "velocity": Vector2(1.0, -0.72), "hp": 2, "behavior": "chase", "speed": ENEMY_SPEED },
@@ -871,9 +958,11 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 	doors_open = false
 	message_timer = 0.0
 	room_message = ""
+	hazard_contact_timer = 0.0
 	bullets.clear()
 	enemies.clear()
 	pickups.clear()
+	_clear_hazards()
 	_clear_node_children(bullets_root)
 	_clear_node_children(enemies_root)
 	_clear_node_children(doors_root)
@@ -887,6 +976,7 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 	_update_route_preview()
 	_update_reward_panel()
 	_spawn_walls(room_config.walls)
+	_spawn_hazards(room_config.get("hazards", []))
 	_spawn_enemies(room_config.enemies)
 	_spawn_rest_room_reward()
 	player.global_position = Vector2(ROOM_MIN.x + 88.0, (ROOM_MIN.y + ROOM_MAX.y) * 0.5)
@@ -911,6 +1001,8 @@ func _update_hud() -> void:
 		shot_meter_fill.color = Color(0.36, 0.92, 0.48) if shot_timer <= 0.0 else Color(1.0, 0.76, 0.25)
 	if message_timer > 0.0:
 		objective_label.text = room_message
+	elif not hazards.is_empty() and not doors_open and not ended:
+		objective_label.text = "清空房间。红色/蓝色机关区会造成伤害。"
 	elif not doors_open and not ended:
 		objective_label.text = "清空房间。蓝色掉落会短暂强化弹道。"
 	elif doors_open and not ended:
@@ -972,6 +1064,7 @@ func _set_ui_running_state(running: bool) -> void:
 	route_panel.visible = running
 	route_accent.visible = running
 	$CanvasLayer/RouteTitle.visible = running
+	route_map_root.visible = running
 	route_preview_label.visible = running
 	reward_panel.visible = running
 	reward_accent.visible = running
@@ -1030,15 +1123,94 @@ func _get_route_lines() -> PackedStringArray:
 	return lines
 
 func _update_route_preview() -> void:
-	var lines := _get_route_lines()
-	route_preview_label.text = "\n".join(lines)
+	_draw_route_map()
+	route_preview_label.text = _build_route_legend()
 	_update_reward_panel()
 
 func _show_complete_overlay() -> void:
 	complete_overlay.visible = true
 	var total_rooms := room_templates.size()
 	complete_summary_label.text = "总计 %d 房 / 用时 %s / 剩余生命 %d" % [total_rooms, _format_run_time(run_time), player.health]
-	complete_route_label.text = "路线：\n%s" % "\n".join(_get_route_lines())
+	complete_route_label.text = "路线复盘：\n%s" % "\n".join(_get_route_lines())
+
+func _draw_route_map() -> void:
+	_clear_node_children(route_map_root)
+	if room_templates.is_empty():
+		return
+	var total := room_templates.size()
+	var step_x := 84.0 if total <= 5 else 68.0
+	var start_x := 18.0
+	var mid_y := 48.0
+	var points: Array[Vector2] = []
+	for i in range(total):
+		var row_offset := -18.0 if i % 2 == 0 else 18.0
+		points.append(Vector2(start_x + step_x * float(i), mid_y + row_offset))
+	for i in range(points.size() - 1):
+		_add_route_link(points[i], points[i + 1], i < current_room_index or run_complete)
+	for i in range(points.size()):
+		_add_route_node(i, points[i])
+
+func _add_route_link(from_point: Vector2, to_point: Vector2, cleared: bool) -> void:
+	var delta := to_point - from_point
+	var link := ColorRect.new()
+	link.position = from_point + delta / 2.0 - Vector2(delta.length() / 2.0, 2.0)
+	link.size = Vector2(delta.length(), 4.0)
+	link.rotation = delta.angle()
+	link.pivot_offset = Vector2(delta.length() / 2.0, 2.0)
+	link.color = Color(0.76, 0.62, 0.34, 0.92) if cleared else Color(0.26, 0.31, 0.35, 0.9)
+	route_map_root.add_child(link)
+
+func _add_route_node(index: int, center: Vector2) -> void:
+	var room := room_templates[index]
+	var room_type := String(room.get("type", "combat"))
+	var is_current := index == current_room_index and started and not run_complete
+	var is_cleared := index < current_room_index or run_complete
+	var node := ColorRect.new()
+	node.position = center - Vector2(22.0, 22.0)
+	node.size = Vector2(44.0, 44.0)
+	node.color = _get_route_node_color(room_type, is_current, is_cleared)
+	route_map_root.add_child(node)
+
+	var marker := Label.new()
+	marker.position = node.position + Vector2(0.0, 6.0)
+	marker.size = node.size
+	marker.text = _get_route_node_mark(room_type, is_current, is_cleared)
+	marker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	marker.add_theme_font_size_override("font_size", 19)
+	marker.add_theme_color_override("font_color", Color(0.98, 0.92, 0.76, 1))
+	route_map_root.add_child(marker)
+
+func _get_route_node_color(room_type: String, is_current: bool, is_cleared: bool) -> Color:
+	if is_current:
+		return Color(0.95, 0.62, 0.18, 1)
+	if is_cleared:
+		return Color(0.22, 0.54, 0.34, 0.95)
+	if room_type == "rest":
+		return Color(0.12, 0.38, 0.48, 0.92)
+	if room_type == "elite":
+		return Color(0.5, 0.22, 0.13, 0.92)
+	if room_type == "boss":
+		return Color(0.38, 0.16, 0.43, 0.92)
+	return Color(0.18, 0.21, 0.24, 0.92)
+
+func _get_route_node_mark(room_type: String, is_current: bool, is_cleared: bool) -> String:
+	if is_current:
+		return "今"
+	if is_cleared:
+		return "过"
+	if room_type == "rest":
+		return "宝"
+	if room_type == "elite":
+		return "精"
+	if room_type == "boss":
+		return "王"
+	return "战"
+
+func _build_route_legend() -> String:
+	var current_name := "未知试炼"
+	if not room_templates.is_empty():
+		current_name = String(room_templates[current_room_index].get("name", current_name))
+	return "当前：%s / 宝=休整 精=精英 王=妖王" % current_name
 
 func _build_pickup_cue_text(reward_type: String, reward_name: String) -> String:
 	if reward_type == "speed":
