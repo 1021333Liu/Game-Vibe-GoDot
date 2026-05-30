@@ -1,14 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
   <defs>
-    <linearGradient id="robe" x1="24" y1="24" x2="72" y2="82" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#f4d56b"/>
-      <stop offset="1" stop-color="#c9822b"/>
+    <linearGradient id="robe" x1="24" y1="30" x2="70" y2="88" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe07a"/>
+      <stop offset="0.55" stop-color="#d99132"/>
+      <stop offset="1" stop-color="#8c3f20"/>
+    </linearGradient>
+    <linearGradient id="staff" x1="18" y1="76" x2="82" y2="18" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7a3e16"/>
+      <stop offset="1" stop-color="#f3c24b"/>
     </linearGradient>
   </defs>
-  <circle cx="48" cy="24" r="14" fill="#f2c59b" stroke="#4b2f1b" stroke-width="4"/>
-  <path d="M30 45c5-10 31-10 36 0l9 34H21z" fill="url(#robe)" stroke="#4b2f1b" stroke-width="4" stroke-linejoin="round"/>
-  <path d="M35 50h26M32 62h32" stroke="#6a2519" stroke-width="4" stroke-linecap="round"/>
-  <circle cx="42" cy="24" r="2.5" fill="#2d211a"/>
-  <circle cx="54" cy="24" r="2.5" fill="#2d211a"/>
-  <path d="M40 32c4 3 12 3 16 0" fill="none" stroke="#6a2519" stroke-width="3" stroke-linecap="round"/>
+  <path d="M27 53c4-14 38-14 42 0l9 32H18z" fill="url(#robe)" stroke="#3f2416" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M32 50c8 8 24 8 32 0M30 64h36M26 78h44" fill="none" stroke="#742717" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="48" cy="28" r="15" fill="#f0bc8f" stroke="#3f2416" stroke-width="4"/>
+  <path d="M34 22c7-10 21-10 28 0" fill="none" stroke="#2f2017" stroke-width="7" stroke-linecap="round"/>
+  <path d="M34 20h28" stroke="#f5d84e" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="42" cy="29" r="2.4" fill="#211713"/>
+  <circle cx="54" cy="29" r="2.4" fill="#211713"/>
+  <path d="M41 36c4 3 10 3 14 0" fill="none" stroke="#6a2519" stroke-width="3" stroke-linecap="round"/>
+  <path d="M23 75 78 20" stroke="url(#staff)" stroke-width="6" stroke-linecap="round"/>
+  <path d="M72 17h14M79 10v14" stroke="#f3c24b" stroke-width="4" stroke-linecap="round"/>
+  <path d="M25 58c-8 8-9 18-2 26M70 58c8 8 9 18 2 26" fill="none" stroke="#3f2416" stroke-width="4" stroke-linecap="round"/>
 </svg>

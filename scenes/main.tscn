@@ -364,6 +364,39 @@ theme_override_font_sizes/font_size = 24
 text = "获得定风珠：攻速提升"
 horizontal_alignment = 1
 
+[node name="RunStatePanel" type="ColorRect" parent="CanvasLayer"]
+offset_left = 720.0
+offset_top = 22.0
+offset_right = 1200.0
+offset_bottom = 72.0
+color = Color(0.03, 0.035, 0.04, 0.88)
+
+[node name="RunStateAccent" type="ColorRect" parent="CanvasLayer"]
+offset_left = 720.0
+offset_top = 22.0
+offset_right = 1200.0
+offset_bottom = 28.0
+color = Color(0.74, 0.56, 0.24, 1)
+
+[node name="RunStateTag" type="Label" parent="CanvasLayer"]
+offset_left = 740.0
+offset_top = 34.0
+offset_right = 900.0
+offset_bottom = 64.0
+theme_override_colors/font_color = Color(0.95, 0.88, 0.72, 1)
+theme_override_font_sizes/font_size = 20
+text = "普通战"
+
+[node name="RunStatePhase" type="Label" parent="CanvasLayer"]
+offset_left = 904.0
+offset_top = 36.0
+offset_right = 1180.0
+offset_bottom = 62.0
+theme_override_colors/font_color = Color(0.8, 0.88, 0.9, 1)
+theme_override_font_sizes/font_size = 18
+text = "交战中"
+horizontal_alignment = 2
+
 [node name="DoorStatusPanel" type="ColorRect" parent="CanvasLayer"]
 offset_left = 1368.0
 offset_top = 22.0
