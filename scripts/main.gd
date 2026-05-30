@@ -19,8 +19,10 @@ const PICKUP_SIZE := Vector2(30, 30)
 const MELEE_RANGE := 76.0
 const MELEE_WIDTH := 88.0
 const MELEE_LIFETIME := 0.13
+const MELEE_TRAIL_LIFETIME := 0.09
 const MELEE_SLASH_WIDTH := 13.0
 const HIT_FLASH_TIME := 0.16
+const HIT_BURST_LIFETIME := 0.2
 const MELEE_HIT_KNOCKBACK := 330.0
 const RANGED_HIT_KNOCKBACK := 210.0
 const SPAWN_SAFETY_PADDING := 28.0
@@ -62,6 +64,8 @@ var room_message := ""
 var enemies: Array[Dictionary] = []
 var bullets: Array[Dictionary] = []
 var melee_effects: Array[Dictionary] = []
+var slash_trails: Array[Dictionary] = []
+var hit_bursts: Array[Dictionary] = []
 var pickups: Array[Dictionary] = []
 var hazards: Array[Dictionary] = []
 var solid_wall_rects: Array[Rect2] = []
@@ -152,6 +156,8 @@ var weapon_swing_timer := 0.0
 @onready var pickup_cue_label: Label = $CanvasLayer/PickupCue
 @onready var start_overlay: ColorRect = $CanvasLayer/StartOverlay
 @onready var pause_overlay: ColorRect = $CanvasLayer/PauseOverlay
+@onready var background_rect: ColorRect = $Background
+@onready var room_frame_rect: ColorRect = $RoomFrame
 
 func _ready() -> void:
 	randomize()
@@ -191,6 +197,8 @@ func _physics_process(delta: float) -> void:
 	_handle_shoot_input()
 	_update_bullets(delta)
 	_update_melee_effects(delta)
+	_update_slash_trails(delta)
+	_update_hit_bursts(delta)
 	_update_enemies(delta)
 	_update_hazards(delta)
 	_update_pickups(delta)
@@ -237,6 +245,7 @@ func _spawn_melee_attack(direction: Vector2) -> void:
 	slash.position = player.position
 	slash.points = _build_slash_points(direction)
 	bullets_root.add_child(slash)
+	_spawn_slash_trail(slash.position, slash.points, slash.default_color)
 	melee_effects.append({
 		"node": slash,
 		"life": MELEE_LIFETIME,
@@ -279,6 +288,79 @@ func _update_melee_effects(delta: float) -> void:
 			if is_instance_valid(node):
 				node.queue_free()
 			melee_effects.remove_at(i)
+
+func _spawn_slash_trail(origin: Vector2, points: PackedVector2Array, slash_color: Color) -> void:
+	var trail := Line2D.new()
+	trail.width = MELEE_SLASH_WIDTH * 0.62
+	trail.default_color = Color(slash_color.r, slash_color.g, slash_color.b, 0.45)
+	trail.joint_mode = Line2D.LINE_JOINT_ROUND
+	trail.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	trail.end_cap_mode = Line2D.LINE_CAP_ROUND
+	trail.position = origin + last_facing * 5.0
+	trail.points = points
+	bullets_root.add_child(trail)
+	slash_trails.append({
+		"node": trail,
+		"life": MELEE_TRAIL_LIFETIME,
+	})
+
+func _update_slash_trails(delta: float) -> void:
+	for i in range(slash_trails.size() - 1, -1, -1):
+		var trail := slash_trails[i]
+		var node: CanvasItem = trail.node
+		trail.life -= delta
+		if is_instance_valid(node):
+			node.modulate.a = clampf(trail.life / MELEE_TRAIL_LIFETIME, 0.0, 1.0)
+		if trail.life <= 0.0:
+			if is_instance_valid(node):
+				node.queue_free()
+			slash_trails.remove_at(i)
+
+func _spawn_hit_burst(center: Vector2, is_melee_hit: bool, behavior: String) -> void:
+	var burst := ColorRect.new()
+	var start_size := Vector2(16.0, 16.0) if is_melee_hit else Vector2(12.0, 12.0)
+	var end_size := Vector2(52.0, 52.0) if is_melee_hit else Vector2(38.0, 38.0)
+	var burst_color := Color(0.95, 0.84, 0.44, 0.86)
+	if behavior == "elite":
+		burst_color = Color(1.0, 0.52, 0.25, 0.92)
+	elif behavior == "boss":
+		burst_color = Color(0.9, 0.44, 0.96, 0.94)
+	burst.position = center - start_size * 0.5
+	burst.size = start_size
+	burst.color = burst_color
+	bullets_root.add_child(burst)
+	hit_bursts.append({
+		"node": burst,
+		"life": HIT_BURST_LIFETIME,
+		"max_life": HIT_BURST_LIFETIME,
+		"center": center,
+		"start_size": start_size,
+		"end_size": end_size,
+		"color": burst_color,
+	})
+
+func _update_hit_bursts(delta: float) -> void:
+	for i in range(hit_bursts.size() - 1, -1, -1):
+		var burst := hit_bursts[i]
+		var node: ColorRect = burst.node
+		var life := float(burst.get("life", HIT_BURST_LIFETIME)) - delta
+		burst.life = life
+		var max_life := maxf(0.001, float(burst.get("max_life", HIT_BURST_LIFETIME)))
+		var t := clampf(1.0 - life / max_life, 0.0, 1.0)
+		var start_size: Vector2 = burst.get("start_size", Vector2(12.0, 12.0))
+		var end_size: Vector2 = burst.get("end_size", Vector2(36.0, 36.0))
+		var center: Vector2 = burst.get("center", Vector2.ZERO)
+		if center == Vector2.ZERO and is_instance_valid(node):
+			center = node.position + node.size * 0.5
+		var color: Color = burst.get("color", Color(0.95, 0.84, 0.44, 0.86))
+		if is_instance_valid(node):
+			node.size = start_size.lerp(end_size, t)
+			node.position = center - node.size * 0.5
+			node.color = Color(color.r, color.g, color.b, color.a * (1.0 - t))
+		if life <= 0.0:
+			if is_instance_valid(node):
+				node.queue_free()
+			hit_bursts.remove_at(i)
 
 func _spawn_player_weapon_visual() -> void:
 	weapon_pivot = Node2D.new()
@@ -357,6 +439,16 @@ func _spawn_walls(walls: Array) -> void:
 		wall.size = wall_rect.size
 		wall.color = Color(0.34, 0.35, 0.38)
 		wall.add_to_group("wall")
+		var wall_inner := ColorRect.new()
+		wall_inner.position = Vector2(3.0, 3.0)
+		wall_inner.size = Vector2(maxf(2.0, wall.size.x - 6.0), maxf(2.0, wall.size.y - 6.0))
+		wall_inner.color = Color(0.22, 0.23, 0.26, 0.88)
+		wall.add_child(wall_inner)
+		var wall_edge := ColorRect.new()
+		wall_edge.position = Vector2(0.0, 0.0)
+		wall_edge.size = Vector2(wall.size.x, 6.0)
+		wall_edge.color = Color(0.56, 0.53, 0.44, 0.42)
+		wall.add_child(wall_edge)
 		walls_root.add_child(wall)
 		solid_wall_rects.append(Rect2(wall.position, wall.size))
 	_update_player_solid_rects()
@@ -681,6 +773,8 @@ func _damage_enemy(index: int, hit_direction: Vector2, is_melee_hit: bool) -> vo
 	var enemy := enemies[index]
 	enemy.hp -= 1
 	var node: ColorRect = enemy.node
+	var enemy_behavior := String(enemy.get("behavior", "chase"))
+	_spawn_hit_burst(node.position + node.size / 2.0, is_melee_hit, enemy_behavior)
 	enemy.hit_flash = HIT_FLASH_TIME
 	var knockback := MELEE_HIT_KNOCKBACK if is_melee_hit else RANGED_HIT_KNOCKBACK
 	var speed_cap := ENEMY_SPEED * (1.85 if is_melee_hit else 1.55)
@@ -1538,6 +1632,7 @@ func _update_room_info_panel(room_config: Dictionary) -> void:
 	room_hint_label.text = "提示：%s" % room_hint
 	room_lore_label.text = "短句：%s" % room_lore
 	room_info_accent.color = _get_room_type_accent(room_type)
+	_apply_room_palette(room_type)
 	_update_encounter_panel(room_type)
 
 func _get_room_type_label(room_type: String) -> String:
@@ -1557,6 +1652,22 @@ func _get_room_type_accent(room_type: String) -> Color:
 	if room_type == "boss":
 		return Color(0.78, 0.38, 0.88, 1)
 	return Color(0.74, 0.56, 0.24, 1)
+
+func _apply_room_palette(room_type: String) -> void:
+	if background_rect == null or room_frame_rect == null:
+		return
+	if room_type == "rest":
+		background_rect.color = Color(0.055, 0.08, 0.1, 1)
+		room_frame_rect.color = Color(0.1, 0.15, 0.18, 1)
+	elif room_type == "elite":
+		background_rect.color = Color(0.085, 0.07, 0.055, 1)
+		room_frame_rect.color = Color(0.15, 0.11, 0.09, 1)
+	elif room_type == "boss":
+		background_rect.color = Color(0.08, 0.055, 0.095, 1)
+		room_frame_rect.color = Color(0.14, 0.1, 0.17, 1)
+	else:
+		background_rect.color = Color(0.07, 0.08, 0.1, 1)
+		room_frame_rect.color = Color(0.12, 0.13, 0.15, 1)
 
 func _format_run_time(seconds: float) -> String:
 	var total := maxi(0, int(seconds))
