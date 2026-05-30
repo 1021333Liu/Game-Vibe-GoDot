@@ -14,9 +14,15 @@ const PLAYER_SIZE := Vector2(36, 36)
 const ENEMY_SIZE := Vector2(42, 42)
 const BULLET_SIZE := Vector2(18, 10)
 const PICKUP_SIZE := Vector2(30, 30)
+const MELEE_RANGE := 62.0
+const MELEE_WIDTH := 78.0
+const MELEE_LIFETIME := 0.11
 const HIT_FLASH_TIME := 0.16
 const HIT_KNOCKBACK := 260.0
 const HAZARD_CONTACT_COOLDOWN := 0.95
+const LATE_ROOM_SPEED_STEP := 0.06
+const BOSS_ROOM_SPEED_BONUS := 0.08
+const LATE_ROOM_HP_STEP := 1
 const ENEMY_CHASE_STEER := 90.0
 const ENEMY_WANDER_STEER := 34.0
 const ELITE_RUSH_INTERVAL := 3.2
@@ -45,6 +51,7 @@ var message_timer := 0.0
 var room_message := ""
 var enemies: Array[Dictionary] = []
 var bullets: Array[Dictionary] = []
+var melee_effects: Array[Dictionary] = []
 var pickups: Array[Dictionary] = []
 var hazards: Array[Dictionary] = []
 var doors_open := false
@@ -124,7 +131,7 @@ func _ready() -> void:
 	_attach_art(player.get_node("Body"), "player")
 	_draw_room_border()
 	room_pools = _build_room_pools()
-	room_templates = _build_room_route()
+	room_templates = _build_curated_room_route()
 	_spawn_shot_meter()
 	_update_route_preview()
 	_load_room(0, true)
@@ -148,6 +155,7 @@ func _physics_process(delta: float) -> void:
 	hazard_contact_timer = maxf(0.0, hazard_contact_timer - delta)
 	_handle_shoot_input()
 	_update_bullets(delta)
+	_update_melee_effects(delta)
 	_update_enemies(delta)
 	_update_hazards(delta)
 	_update_pickups(delta)
@@ -173,7 +181,45 @@ func _handle_shoot_input() -> void:
 	if direction == Vector2.ZERO:
 		return
 	shot_timer = _current_shot_cooldown()
-	_spawn_bullet(direction)
+	if shot_boost_timer > 0.0:
+		_spawn_bullet(direction)
+	else:
+		_spawn_melee_attack(direction)
+
+func _spawn_melee_attack(direction: Vector2) -> void:
+	var slash := ColorRect.new()
+	var horizontal := absf(direction.x) > 0.0
+	slash.size = Vector2(MELEE_RANGE, MELEE_WIDTH) if horizontal else Vector2(MELEE_WIDTH, MELEE_RANGE)
+	var offset := Vector2(direction.x * (PLAYER_SIZE.x * 0.5 + slash.size.x * 0.5), direction.y * (PLAYER_SIZE.y * 0.5 + slash.size.y * 0.5))
+	slash.position = player.position + offset - slash.size / 2.0
+	slash.color = Color(1.0, 0.82, 0.32, 0.48)
+	bullets_root.add_child(slash)
+	melee_effects.append({
+		"node": slash,
+		"life": MELEE_LIFETIME,
+	})
+	_damage_enemies_in_melee(Rect2(slash.position, slash.size), direction)
+
+func _damage_enemies_in_melee(melee_rect: Rect2, direction: Vector2) -> void:
+	var hit_indices: Array[int] = []
+	for i in enemies.size():
+		var enemy_node: ColorRect = enemies[i].node
+		if melee_rect.intersects(Rect2(enemy_node.position, enemy_node.size)):
+			hit_indices.append(i)
+	for i in range(hit_indices.size() - 1, -1, -1):
+		_damage_enemy(hit_indices[i], direction)
+
+func _update_melee_effects(delta: float) -> void:
+	for i in range(melee_effects.size() - 1, -1, -1):
+		var effect := melee_effects[i]
+		var node: ColorRect = effect.node
+		effect.life -= delta
+		if is_instance_valid(node):
+			node.modulate.a = clampf(effect.life / MELEE_LIFETIME, 0.0, 1.0)
+		if effect.life <= 0.0:
+			if is_instance_valid(node):
+				node.queue_free()
+			melee_effects.remove_at(i)
 
 func _spawn_bullet(direction: Vector2) -> void:
 	var bullet := ColorRect.new()
@@ -216,7 +262,7 @@ func _spawn_walls(walls: Array) -> void:
 		wall.add_to_group("wall")
 		walls_root.add_child(wall)
 
-func _spawn_hazards(configs: Array) -> void:
+func _spawn_hazards(configs: Array, room_type: String = "combat") -> void:
 	for config in configs:
 		var hazard_type := String(config.get("type", "spike"))
 		var hazard := ColorRect.new()
@@ -230,6 +276,7 @@ func _spawn_hazards(configs: Array) -> void:
 			"type": hazard_type,
 			"phase": randf_range(0.0, TAU),
 			"armed": bool(config.get("armed", true)),
+			"cooldown_scale": _room_hazard_cooldown_scale(room_type),
 		})
 
 func _update_hazards(delta: float) -> void:
@@ -262,7 +309,7 @@ func _check_hazard_contact() -> void:
 			continue
 		var node: ColorRect = hazard.node
 		if player_rect.intersects(Rect2(node.position, node.size)):
-			hazard_contact_timer = HAZARD_CONTACT_COOLDOWN
+			hazard_contact_timer = HAZARD_CONTACT_COOLDOWN * float(hazard.get("cooldown_scale", 1.0))
 			if shield_charges > 0:
 				shield_charges -= 1
 				_show_room_message("护身符挡下机关伤害", 1.1)
@@ -283,6 +330,15 @@ func _get_hazard_hit_message(hazard_type: String) -> String:
 		return "黑风卷身：短暂无敌"
 	return "机关刺伤：短暂无敌"
 
+func _room_hazard_cooldown_scale(room_type: String) -> float:
+	if current_room_index < 2:
+		return 1.0
+	if room_type == "boss":
+		return 0.82
+	if room_type == "elite":
+		return 0.9
+	return 0.95
+
 func _spawn_enemies(configs: Array) -> void:
 	for config in configs:
 		_spawn_enemy(config)
@@ -292,7 +348,8 @@ func _spawn_enemy(config: Dictionary) -> void:
 	var enemy_position: Vector2 = config.get("position", Vector2.ZERO)
 	var enemy_velocity: Vector2 = config.get("velocity", Vector2.RIGHT)
 	var behavior := String(config.get("behavior", _default_enemy_behavior(hp)))
-	var speed := float(config.get("speed", ENEMY_SPEED))
+	hp = _scale_enemy_hp(hp, behavior)
+	var speed := float(config.get("speed", ENEMY_SPEED)) * _room_enemy_speed_scale(behavior)
 	var enemy := ColorRect.new()
 	enemy.position = enemy_position
 	enemy.size = ENEMY_SIZE if hp == 1 else Vector2(58, 58)
@@ -441,6 +498,28 @@ func _spawn_boss_summon(boss_enemy: Dictionary) -> void:
 		"speed": ENEMY_SPEED * 1.05,
 	})
 
+func _room_enemy_speed_scale(behavior: String) -> float:
+	if current_room_index < 2:
+		return 1.0
+	var late_steps: int = max(0, current_room_index - 1)
+	var speed_scale: float = 1.0 + float(late_steps) * LATE_ROOM_SPEED_STEP
+	if current_room_type == "boss" or behavior == "boss":
+		speed_scale += BOSS_ROOM_SPEED_BONUS
+	elif current_room_type == "elite" or behavior == "elite":
+		speed_scale += 0.04
+	return minf(speed_scale, 1.24)
+
+func _scale_enemy_hp(base_hp: int, behavior: String) -> int:
+	if current_room_index < 2:
+		return base_hp
+	if behavior == "summon":
+		return base_hp
+	if current_room_type == "boss" and behavior == "boss":
+		return base_hp + LATE_ROOM_HP_STEP
+	if current_room_index >= 3 and (behavior == "elite" or base_hp >= 3):
+		return base_hp + LATE_ROOM_HP_STEP
+	return base_hp
+
 func _default_enemy_behavior(hp: int) -> String:
 	if hp >= 8:
 		return "boss"
@@ -546,7 +625,7 @@ func _check_pickup_contact() -> void:
 				player.apply_speed_boost(SPEED_BOOST_DURATION, SPEED_BOOST_MULTIPLIER)
 				_show_room_message("拾取%s：%.0f 秒内移速提升" % [reward_name, SPEED_BOOST_DURATION], 1.8)
 			elif reward_type == "shield":
-				shield_charges = min(shield_charges + 1, 2)
+				shield_charges = min(shield_charges + 1, _max_shield_charges())
 				_show_room_message("拾取%s：护盾+1" % reward_name, 1.8)
 			else:
 				shot_boost_timer = SHOT_BOOST_DURATION
@@ -718,6 +797,9 @@ func _roll_rest_reward_choices() -> Array[String]:
 		guard += 1
 	return [first, second]
 
+func _max_shield_charges() -> int:
+	return 1 if current_room_type == "rest" else 2
+
 func _show_room_message(message: String, duration: float) -> void:
 	room_message = message
 	message_timer = duration
@@ -849,6 +931,31 @@ func _build_room_pools() -> Dictionary:
 					{ "position": Vector2(1450, 710), "velocity": Vector2(-0.8, -0.92), "hp": 1, "behavior": "wander", "speed": ENEMY_SPEED * 1.08 },
 				],
 			},
+			{
+				"id": "combat_spider",
+				"hint": "别被中路牵制，先破两翼",
+				"lore": "蛛丝结网，越急越乱",
+				"name": "盘丝洞窄厅",
+				"type": "combat",
+				"walls": [
+					Rect2(420, 260, 180, 40),
+					Rect2(1320, 260, 180, 40),
+					Rect2(420, 780, 180, 40),
+					Rect2(1320, 780, 180, 40),
+					Rect2(760, 390, 110, 300),
+					Rect2(1050, 390, 110, 300),
+				],
+				"hazards": [
+					{ "type": "spike", "rect": Rect2(890, 390, 140, 82) },
+					{ "type": "spike", "rect": Rect2(890, 608, 140, 82) },
+				],
+				"enemies": [
+					{ "position": Vector2(420, 420), "velocity": Vector2(1, 0.7), "hp": 1, "behavior": "chase", "speed": ENEMY_SPEED * 1.04 },
+					{ "position": Vector2(1460, 420), "velocity": Vector2(-1, 0.7), "hp": 1, "behavior": "chase", "speed": ENEMY_SPEED * 1.04 },
+					{ "position": Vector2(420, 690), "velocity": Vector2(1, -0.7), "hp": 1, "behavior": "wander", "speed": ENEMY_SPEED * 1.14 },
+					{ "position": Vector2(1460, 690), "velocity": Vector2(-1, -0.7), "hp": 2, "behavior": "wander", "speed": ENEMY_SPEED * 1.1 },
+				],
+			},
 		],
 		"elite": [
 			{
@@ -970,25 +1077,64 @@ func _build_room_pools() -> Dictionary:
 					{ "position": Vector2(1290, 630), "velocity": Vector2(-1.0, 0.72), "hp": 2, "behavior": "chase", "speed": ENEMY_SPEED },
 				],
 			},
+			{
+				"id": "boss_lion_camel",
+				"name": "狮驼岭三魔影",
+				"type": "boss",
+				"hint": "不要恋战，绕开中场风区逐个削血",
+				"lore": "岭上风腥，三影压境",
+				"walls": [
+					Rect2(440, 245, 260, 46),
+					Rect2(1220, 245, 260, 46),
+					Rect2(440, 790, 260, 46),
+					Rect2(1220, 790, 260, 46),
+					Rect2(850, 410, 220, 54),
+					Rect2(850, 616, 220, 54),
+				],
+				"hazards": [
+					{ "type": "wind", "rect": Rect2(730, 470, 120, 140) },
+					{ "type": "fire", "rect": Rect2(1070, 470, 120, 140) },
+				],
+				"enemies": [
+					{ "position": Vector2(960, 520), "velocity": Vector2(0.85, 0.45), "hp": 10, "behavior": "boss", "speed": ENEMY_SPEED * 0.86 },
+					{ "position": Vector2(560, 430), "velocity": Vector2(1.0, -0.62), "hp": 3, "behavior": "elite", "speed": ENEMY_SPEED * 0.96 },
+					{ "position": Vector2(1360, 650), "velocity": Vector2(-1.0, 0.62), "hp": 3, "behavior": "elite", "speed": ENEMY_SPEED * 0.96 },
+				],
+			},
 		],
 	}
 
 func _build_room_route() -> Array[Dictionary]:
+	return _build_curated_room_route()
+
+func _build_curated_room_route() -> Array[Dictionary]:
+	var all_rooms: Array[Dictionary] = []
+	all_rooms.append_array(room_pools.combat)
+	all_rooms.append_array(room_pools.elite)
+	all_rooms.append_array(room_pools.rest)
+	all_rooms.append_array(room_pools.boss)
+	var route_ids := [
+		"combat_bridge",
+		"combat_bone",
+		"elite_default",
+		"rest_calm",
+		"combat_spider",
+		"elite_fire_cloud",
+		"rest_dragon",
+		"elite_jindou",
+		"boss_blackwind",
+		"boss_lion_camel",
+	]
 	var route: Array[Dictionary] = []
-	var target_rooms := 4 + (randi() % 2)
-	var last_combat_id := ""
-	route.append(_pick_room_from_pool(room_pools.combat, last_combat_id))
-	last_combat_id = route[route.size() - 1].id
-	if target_rooms == 5:
-		route.append(_pick_room_from_pool(room_pools.combat, last_combat_id))
-		last_combat_id = route[route.size() - 1].id
-	route.append(_pick_room_from_pool(room_pools.elite))
-	route.append(_pick_room_from_pool(room_pools.combat, last_combat_id))
-	if randi() % 2 == 0:
-		route.append(_pick_room_from_pool(room_pools.rest))
-	else:
-		route.append(_pick_room_from_pool(room_pools.boss))
+	for room_id in route_ids:
+		route.append(_clone_room_template(_find_room_template(all_rooms, room_id)))
 	return route
+
+func _find_room_template(rooms: Array[Dictionary], room_id: String) -> Dictionary:
+	for room in rooms:
+		if String(room.get("id", "")) == room_id:
+			return room
+	return rooms[0]
 
 func _load_room(room_index: int, is_first_room: bool) -> void:
 	current_room_index = clampi(room_index, 0, max(0, room_templates.size() - 1))
@@ -1002,6 +1148,7 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 	room_message = ""
 	hazard_contact_timer = 0.0
 	bullets.clear()
+	melee_effects.clear()
 	enemies.clear()
 	pickups.clear()
 	_clear_hazards()
@@ -1018,7 +1165,7 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 	_update_route_preview()
 	_update_reward_panel()
 	_spawn_walls(room_config.walls)
-	_spawn_hazards(room_config.get("hazards", []))
+	_spawn_hazards(room_config.get("hazards", []), current_room_type)
 	_spawn_enemies(room_config.enemies)
 	_spawn_rest_room_reward()
 	player.global_position = Vector2(ROOM_MIN.x + 88.0, (ROOM_MIN.y + ROOM_MAX.y) * 0.5)
@@ -1030,7 +1177,8 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 func _update_hud() -> void:
 	var cooldown := _current_shot_cooldown()
 	var charge_ratio := 1.0 - clampf(shot_timer / cooldown, 0.0, 1.0)
-	var charge := "就绪" if shot_timer <= 0.0 else "%d%%" % roundi(charge_ratio * 100.0)
+	var attack_mode := "远程" if shot_boost_timer > 0.0 else "近战"
+	var charge := "%s就绪" % attack_mode if shot_timer <= 0.0 else "%s%d%%" % [attack_mode, roundi(charge_ratio * 100.0)]
 	hud_label.text = "取经状态"
 	hud_hp_value.text = _build_health_marks()
 	hud_enemy_value.text = "%d" % enemies.size()
@@ -1046,7 +1194,7 @@ func _update_hud() -> void:
 	elif not hazards.is_empty() and not doors_open and not ended:
 		objective_label.text = "清空房间。红色/蓝色机关区会造成伤害。"
 	elif not doors_open and not ended:
-		objective_label.text = "清空房间。蓝色掉落会短暂强化弹道。"
+		objective_label.text = "近身斩妖。获得定风珠后可短暂远程攻击。"
 	elif doors_open and not ended:
 		objective_label.text = "房间已净，进入绿色传送门。"
 
@@ -1193,13 +1341,16 @@ func _draw_route_map() -> void:
 	if room_templates.is_empty():
 		return
 	var total := room_templates.size()
-	var step_x := 84.0 if total <= 5 else 68.0
-	var start_x := 18.0
-	var mid_y := 48.0
+	var columns := 5
+	var step_x := 92.0
+	var row_gap := 48.0
+	var start_x := 20.0
+	var start_y := 26.0
 	var points: Array[Vector2] = []
 	for i in range(total):
-		var row_offset := -18.0 if i % 2 == 0 else 18.0
-		points.append(Vector2(start_x + step_x * float(i), mid_y + row_offset))
+		var column := i % columns
+		var row := int(i / columns)
+		points.append(Vector2(start_x + step_x * float(column), start_y + row_gap * float(row)))
 	for i in range(points.size() - 1):
 		_add_route_link(points[i], points[i + 1], i < current_room_index or run_complete)
 	for i in range(points.size()):
