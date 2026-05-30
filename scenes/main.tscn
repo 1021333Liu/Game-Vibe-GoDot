@@ -279,6 +279,80 @@ theme_override_colors/font_color = Color(0.78, 0.86, 0.84, 1)
 theme_override_font_sizes/font_size = 16
 text = "尚未取得法宝"
 
+[node name="CombatPanel" type="ColorRect" parent="CanvasLayer"]
+offset_left = 24.0
+offset_top = 340.0
+offset_right = 650.0
+offset_bottom = 438.0
+color = Color(0.032, 0.044, 0.05, 0.88)
+
+[node name="CombatAccent" type="ColorRect" parent="CanvasLayer"]
+offset_left = 24.0
+offset_top = 340.0
+offset_right = 650.0
+offset_bottom = 346.0
+color = Color(0.36, 0.76, 0.9, 1)
+
+[node name="CombatTitle" type="Label" parent="CanvasLayer"]
+offset_left = 42.0
+offset_top = 354.0
+offset_right = 632.0
+offset_bottom = 380.0
+theme_override_colors/font_color = Color(0.84, 0.94, 0.98, 1)
+theme_override_font_sizes/font_size = 18
+text = "战斗方式"
+
+[node name="CombatMode" type="Label" parent="CanvasLayer"]
+offset_left = 42.0
+offset_top = 380.0
+offset_right = 632.0
+offset_bottom = 408.0
+theme_override_colors/font_color = Color(0.94, 0.98, 1, 1)
+theme_override_font_sizes/font_size = 20
+text = "当前：近战"
+
+[node name="CombatDetail" type="Label" parent="CanvasLayer"]
+offset_left = 42.0
+offset_top = 410.0
+offset_right = 632.0
+offset_bottom = 434.0
+theme_override_colors/font_color = Color(0.72, 0.84, 0.88, 1)
+theme_override_font_sizes/font_size = 15
+text = "方向键挥击；拾取定风珠后短时改为远程"
+
+[node name="ChoicePanel" type="ColorRect" parent="CanvasLayer"]
+offset_left = 24.0
+offset_top = 450.0
+offset_right = 650.0
+offset_bottom = 516.0
+color = Color(0.03, 0.04, 0.048, 0.86)
+
+[node name="ChoiceAccent" type="ColorRect" parent="CanvasLayer"]
+offset_left = 24.0
+offset_top = 450.0
+offset_right = 650.0
+offset_bottom = 456.0
+color = Color(0.42, 0.72, 0.94, 1)
+
+[node name="ChoiceTitle" type="Label" parent="CanvasLayer"]
+offset_left = 42.0
+offset_top = 460.0
+offset_right = 180.0
+offset_bottom = 484.0
+theme_override_colors/font_color = Color(0.86, 0.94, 0.98, 1)
+theme_override_font_sizes/font_size = 17
+text = "法宝选择"
+
+[node name="ChoiceText" type="Label" parent="CanvasLayer"]
+offset_left = 176.0
+offset_top = 460.0
+offset_right = 632.0
+offset_bottom = 506.0
+theme_override_colors/font_color = Color(0.8, 0.9, 0.92, 1)
+theme_override_font_sizes/font_size = 16
+text = "当前无临时法宝"
+autowrap_mode = 3
+
 [node name="PickupCue" type="Label" parent="CanvasLayer"]
 visible = false
 offset_left = 560.0
@@ -394,7 +468,7 @@ offset_right = 1872.0
 offset_bottom = 348.0
 theme_override_colors/font_color = Color(0.84, 0.9, 0.96, 1)
 theme_override_font_sizes/font_size = 20
-text = "本局路线"
+text = "固定十关路线"
 
 [node name="RoutePreview" type="Label" parent="CanvasLayer"]
 offset_left = 1392.0
@@ -403,7 +477,7 @@ offset_right = 1872.0
 offset_bottom = 478.0
 theme_override_colors/font_color = Color(0.74, 0.82, 0.9, 1)
 theme_override_font_sizes/font_size = 14
-text = "亮=当前 / 宝=休整 / 王=妖王"
+text = "战=普通 宝=休整 精=精英 王=妖王"
 autowrap_mode = 3
 
 [node name="RouteMapRoot" type="Control" parent="CanvasLayer"]
@@ -411,6 +485,48 @@ offset_left = 1392.0
 offset_top = 350.0
 offset_right = 1872.0
 offset_bottom = 448.0
+
+[node name="EncounterPanel" type="ColorRect" parent="CanvasLayer"]
+offset_left = 1368.0
+offset_top = 494.0
+offset_right = 1890.0
+offset_bottom = 620.0
+color = Color(0.04, 0.035, 0.03, 0.9)
+
+[node name="EncounterAccent" type="ColorRect" parent="CanvasLayer"]
+offset_left = 1368.0
+offset_top = 494.0
+offset_right = 1890.0
+offset_bottom = 500.0
+color = Color(0.74, 0.56, 0.24, 1)
+
+[node name="EncounterTitle" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 506.0
+offset_right = 1872.0
+offset_bottom = 532.0
+theme_override_colors/font_color = Color(0.95, 0.87, 0.72, 1)
+theme_override_font_sizes/font_size = 18
+text = "遭遇预警"
+
+[node name="EncounterType" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 534.0
+offset_right = 1872.0
+offset_bottom = 564.0
+theme_override_colors/font_color = Color(0.83, 0.9, 0.92, 1)
+theme_override_font_sizes/font_size = 20
+text = "普通战 · 清怪开门"
+
+[node name="EncounterHint" type="Label" parent="CanvasLayer"]
+offset_left = 1392.0
+offset_top = 566.0
+offset_right = 1872.0
+offset_bottom = 612.0
+theme_override_colors/font_color = Color(0.76, 0.82, 0.84, 1)
+theme_override_font_sizes/font_size = 16
+text = "先清近身威胁，再处理远端目标。"
+autowrap_mode = 3
 
 [node name="CompleteOverlay" type="ColorRect" parent="CanvasLayer"]
 visible = false
@@ -514,7 +630,7 @@ offset_right = 836.0
 offset_bottom = 194.0
 theme_override_colors/font_color = Color(0.78, 0.82, 0.84, 1)
 theme_override_font_sizes/font_size = 24
-text = "清房、破印、继续西行"
+text = "固定十关 · 近战为主 · 定风珠临时远程"
 horizontal_alignment = 1
 
 [node name="StartGoalPanel" type="ColorRect" parent="CanvasLayer/StartOverlay/StartPanel"]
@@ -548,7 +664,7 @@ offset_right = 826.0
 offset_bottom = 340.0
 theme_override_colors/font_color = Color(0.82, 0.9, 0.92, 1)
 theme_override_font_sizes/font_size = 20
-text = "路线\n十个精品西行试炼\n战 / 精 / 宝 / 王各有标记"
+text = "路线\n十个精品关卡顺序推进\n右侧常驻显示第几关"
 autowrap_mode = 3
 
 [node name="StartTreasurePanel" type="ColorRect" parent="CanvasLayer/StartOverlay/StartPanel"]
@@ -565,7 +681,7 @@ offset_right = 402.0
 offset_bottom = 500.0
 theme_override_colors/font_color = Color(0.9, 0.82, 0.96, 1)
 theme_override_font_sizes/font_size = 20
-text = "法宝\n定风珠开远程\n腾云符提身法，护身符挡伤"
+text = "攻势\n默认方向键近战\n定风珠倒计时内远程"
 autowrap_mode = 3
 
 [node name="StartTrialPanel" type="ColorRect" parent="CanvasLayer/StartOverlay/StartPanel"]

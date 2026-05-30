@@ -5,8 +5,10 @@ const ROOM_MAX := Vector2(1760, 980)
 const BULLET_SPEED := 980.0
 const BULLET_LIFETIME := 1.25
 const BASE_SHOT_COOLDOWN := 0.75
-const BOOSTED_SHOT_COOLDOWN := 0.38
-const SHOT_BOOST_DURATION := 7.0
+const MELEE_COOLDOWN := 0.54
+const BOOSTED_SHOT_COOLDOWN := 0.42
+const SHOT_BOOST_DURATION := 5.5
+const WIND_SHOT_CHARGES := 6
 const SPEED_BOOST_DURATION := 7.0
 const SPEED_BOOST_MULTIPLIER := 1.3
 const ENEMY_SPEED := 130.0
@@ -14,12 +16,15 @@ const PLAYER_SIZE := Vector2(36, 36)
 const ENEMY_SIZE := Vector2(42, 42)
 const BULLET_SIZE := Vector2(18, 10)
 const PICKUP_SIZE := Vector2(30, 30)
-const MELEE_RANGE := 62.0
-const MELEE_WIDTH := 78.0
-const MELEE_LIFETIME := 0.11
+const MELEE_RANGE := 76.0
+const MELEE_WIDTH := 88.0
+const MELEE_LIFETIME := 0.13
 const HIT_FLASH_TIME := 0.16
-const HIT_KNOCKBACK := 260.0
+const MELEE_HIT_KNOCKBACK := 330.0
+const RANGED_HIT_KNOCKBACK := 210.0
+const SPAWN_SAFETY_PADDING := 28.0
 const HAZARD_CONTACT_COOLDOWN := 0.95
+const EARLY_ROOM_COUNT := 3
 const LATE_ROOM_SPEED_STEP := 0.06
 const BOSS_ROOM_SPEED_BONUS := 0.08
 const LATE_ROOM_HP_STEP := 1
@@ -28,10 +33,10 @@ const ENEMY_WANDER_STEER := 34.0
 const ELITE_RUSH_INTERVAL := 3.2
 const ELITE_RUSH_DURATION := 0.85
 const ELITE_RUSH_SCALE := 1.85
-const BOSS_ACTION_INTERVAL := 2.6
+const BOSS_ACTION_INTERVAL := 3.05
 const BOSS_CHARGE_DURATION := 0.7
 const BOSS_CHARGE_SCALE := 2.15
-const BOSS_SUMMON_LIMIT := 6
+const BOSS_SUMMON_LIMIT := 4
 const ENEMY_COLOR := Color(0.78, 0.18, 0.17)
 const ELITE_COLOR := Color(0.88, 0.32, 0.16)
 const LOCKED_EXIT_COLOR := Color(0.15, 0.18, 0.2)
@@ -47,6 +52,7 @@ const PICKUP_SHIELD_ART_PATH := "res://assets/pickup_shield.svg"
 
 var shot_timer := 0.0
 var shot_boost_timer := 0.0
+var wind_shot_charges := 0
 var message_timer := 0.0
 var room_message := ""
 var enemies: Array[Dictionary] = []
@@ -74,6 +80,7 @@ var pickup_cue_timer := 0.0
 var hazard_contact_timer := 0.0
 var shot_meter_fill: ColorRect
 var art_textures: Dictionary = {}
+var room_spawn_guard_index := 0
 
 @onready var player: CharacterBody2D = $Player
 @onready var room_border: Node2D = $RoomBorder
@@ -118,6 +125,17 @@ var art_textures: Dictionary = {}
 @onready var loot_panel: ColorRect = $CanvasLayer/LootPanel
 @onready var loot_title_label: Label = $CanvasLayer/LootTitle
 @onready var loot_list_label: Label = $CanvasLayer/LootList
+@onready var combat_panel: ColorRect = $CanvasLayer/CombatPanel
+@onready var combat_accent: ColorRect = $CanvasLayer/CombatAccent
+@onready var combat_mode_label: Label = $CanvasLayer/CombatMode
+@onready var combat_detail_label: Label = $CanvasLayer/CombatDetail
+@onready var choice_panel: ColorRect = $CanvasLayer/ChoicePanel
+@onready var choice_accent: ColorRect = $CanvasLayer/ChoiceAccent
+@onready var choice_text_label: Label = $CanvasLayer/ChoiceText
+@onready var encounter_panel: ColorRect = $CanvasLayer/EncounterPanel
+@onready var encounter_accent: ColorRect = $CanvasLayer/EncounterAccent
+@onready var encounter_type_label: Label = $CanvasLayer/EncounterType
+@onready var encounter_hint_label: Label = $CanvasLayer/EncounterHint
 @onready var pickup_cue_label: Label = $CanvasLayer/PickupCue
 @onready var start_overlay: ColorRect = $CanvasLayer/StartOverlay
 @onready var pause_overlay: ColorRect = $CanvasLayer/PauseOverlay
@@ -138,6 +156,7 @@ func _ready() -> void:
 	_set_ui_running_state(false)
 	_update_reward_panel()
 	_update_reward_icon()
+	_update_choice_status()
 	_update_hud()
 
 func _physics_process(delta: float) -> void:
@@ -181,8 +200,12 @@ func _handle_shoot_input() -> void:
 	if direction == Vector2.ZERO:
 		return
 	shot_timer = _current_shot_cooldown()
-	if shot_boost_timer > 0.0:
+	if _can_fire_wind_shot():
 		_spawn_bullet(direction)
+		wind_shot_charges -= 1
+		if wind_shot_charges <= 0:
+			shot_boost_timer = 0.0
+			_show_room_message("定风珠灵力已尽：回到近战", 1.1)
 	else:
 		_spawn_melee_attack(direction)
 
@@ -207,7 +230,7 @@ func _damage_enemies_in_melee(melee_rect: Rect2, direction: Vector2) -> void:
 		if melee_rect.intersects(Rect2(enemy_node.position, enemy_node.size)):
 			hit_indices.append(i)
 	for i in range(hit_indices.size() - 1, -1, -1):
-		_damage_enemy(hit_indices[i], direction)
+		_damage_enemy(hit_indices[i], direction, true)
 
 func _update_melee_effects(delta: float) -> void:
 	for i in range(melee_effects.size() - 1, -1, -1):
@@ -225,7 +248,7 @@ func _spawn_bullet(direction: Vector2) -> void:
 	var bullet := ColorRect.new()
 	bullet.size = BULLET_SIZE if direction.x != 0.0 else Vector2(BULLET_SIZE.y, BULLET_SIZE.x)
 	bullet.position = player.position - bullet.size / 2.0
-	bullet.color = Color(0.58, 0.9, 1.0) if shot_boost_timer > 0.0 else Color(1.0, 0.82, 0.24)
+	bullet.color = Color(0.58, 0.9, 1.0) if _can_fire_wind_shot() else Color(1.0, 0.82, 0.24)
 	bullets_root.add_child(bullet)
 	bullets.append({
 		"node": bullet,
@@ -251,7 +274,7 @@ func _update_bullets(delta: float) -> void:
 		if hit_index != -1:
 			node.queue_free()
 			bullets.remove_at(i)
-			_damage_enemy(hit_index, bullet.velocity.normalized())
+			_damage_enemy(hit_index, bullet.velocity.normalized(), false)
 
 func _spawn_walls(walls: Array) -> void:
 	for wall_rect in walls:
@@ -345,7 +368,7 @@ func _spawn_enemies(configs: Array) -> void:
 
 func _spawn_enemy(config: Dictionary) -> void:
 	var hp := int(config.get("hp", 1))
-	var enemy_position: Vector2 = config.get("position", Vector2.ZERO)
+	var enemy_position: Vector2 = _resolve_enemy_spawn_position(config.get("position", Vector2.ZERO))
 	var enemy_velocity: Vector2 = config.get("velocity", Vector2.RIGHT)
 	var behavior := String(config.get("behavior", _default_enemy_behavior(hp)))
 	hp = _scale_enemy_hp(hp, behavior)
@@ -411,11 +434,22 @@ func _update_enemies(delta: float) -> void:
 			enemy.velocity.y *= -1.0
 			bounced = true
 		if _enemy_hits_wall(node):
-			enemy.velocity *= -1.0
+			enemy.velocity = _slide_enemy_velocity(enemy.velocity, node)
 			bounced = true
 		if bounced:
 			node.position.x = clampf(node.position.x, ROOM_MIN.x, ROOM_MAX.x - node.size.x)
 			node.position.y = clampf(node.position.y, ROOM_MIN.y, ROOM_MAX.y - node.size.y)
+
+func _slide_enemy_velocity(velocity: Vector2, node: ColorRect) -> Vector2:
+	var horizontal_try := Vector2(-velocity.x, velocity.y)
+	var vertical_try := Vector2(velocity.x, -velocity.y)
+	var rect_h := Rect2(node.position + horizontal_try.normalized() * 6.0, node.size)
+	if horizontal_try.length() > 0.0 and not _enemy_rect_hits_wall(rect_h):
+		return horizontal_try
+	var rect_v := Rect2(node.position + vertical_try.normalized() * 6.0, node.size)
+	if vertical_try.length() > 0.0 and not _enemy_rect_hits_wall(rect_v):
+		return vertical_try
+	return -velocity
 
 func _update_enemy_behavior(enemy: Dictionary, delta: float) -> void:
 	var behavior := String(enemy.get("behavior", "wander"))
@@ -498,8 +532,30 @@ func _spawn_boss_summon(boss_enemy: Dictionary) -> void:
 		"speed": ENEMY_SPEED * 1.05,
 	})
 
+func _resolve_enemy_spawn_position(raw_position: Vector2) -> Vector2:
+	var min_x := ROOM_MIN.x + SPAWN_SAFETY_PADDING
+	var max_x := ROOM_MAX.x - ENEMY_SIZE.x - SPAWN_SAFETY_PADDING
+	var min_y := ROOM_MIN.y + SPAWN_SAFETY_PADDING
+	var max_y := ROOM_MAX.y - ENEMY_SIZE.y - SPAWN_SAFETY_PADDING
+	var spawn := Vector2(
+		clampf(raw_position.x, min_x, max_x),
+		clampf(raw_position.y, min_y, max_y)
+	)
+	var probe_size := ENEMY_SIZE
+	var tries := 0
+	while tries < 10 and (_enemy_rect_hits_wall(Rect2(spawn, probe_size)) or _enemy_rect_hits_hazard(Rect2(spawn, probe_size))):
+		var angle := float((room_spawn_guard_index + tries) % 12) * TAU / 12.0
+		var radius := 38.0 + float(tries) * 14.0
+		var candidate := spawn + Vector2(cos(angle), sin(angle)) * radius
+		candidate.x = clampf(candidate.x, min_x, max_x)
+		candidate.y = clampf(candidate.y, min_y, max_y)
+		spawn = candidate
+		tries += 1
+	room_spawn_guard_index += 1
+	return spawn
+
 func _room_enemy_speed_scale(behavior: String) -> float:
-	if current_room_index < 2:
+	if current_room_index < EARLY_ROOM_COUNT:
 		return 1.0
 	var late_steps: int = max(0, current_room_index - 1)
 	var speed_scale: float = 1.0 + float(late_steps) * LATE_ROOM_SPEED_STEP
@@ -510,7 +566,7 @@ func _room_enemy_speed_scale(behavior: String) -> float:
 	return minf(speed_scale, 1.24)
 
 func _scale_enemy_hp(base_hp: int, behavior: String) -> int:
-	if current_room_index < 2:
+	if current_room_index < EARLY_ROOM_COUNT:
 		return base_hp
 	if behavior == "summon":
 		return base_hp
@@ -541,12 +597,14 @@ func _check_enemy_contact() -> void:
 				ended = true
 				objective_label.text = "取经受阻：按 R 重开"
 
-func _damage_enemy(index: int, hit_direction: Vector2) -> void:
+func _damage_enemy(index: int, hit_direction: Vector2, is_melee_hit: bool) -> void:
 	var enemy := enemies[index]
 	enemy.hp -= 1
 	var node: ColorRect = enemy.node
 	enemy.hit_flash = HIT_FLASH_TIME
-	enemy.velocity = (enemy.velocity + hit_direction * HIT_KNOCKBACK).limit_length(ENEMY_SPEED * 1.9)
+	var knockback := MELEE_HIT_KNOCKBACK if is_melee_hit else RANGED_HIT_KNOCKBACK
+	var speed_cap := ENEMY_SPEED * (1.85 if is_melee_hit else 1.55)
+	enemy.velocity = (enemy.velocity + hit_direction * knockback).limit_length(speed_cap)
 	if enemy.hp <= 0:
 		_spawn_pickup(node.position + node.size / 2.0)
 		node.queue_free()
@@ -597,8 +655,11 @@ func _update_pickups(delta: float) -> void:
 	for i in range(pickups.size() - 1, -1, -1):
 		var pickup := pickups[i]
 		var node: ColorRect = pickup.node
-		pickup.life -= delta
-		node.modulate.a = 0.45 if pickup.life < 2.0 and int(pickup.life * 10.0) % 2 == 0 else 1.0
+		var life := float(pickup.get("life", 9.0))
+		life -= delta
+		pickup.life = life
+		var should_blink := life < 2.0 and life < 900.0
+		node.modulate.a = 0.45 if should_blink and int(life * 10.0) % 2 == 0 else 1.0
 		if pickup.life <= 0.0:
 			node.queue_free()
 			pickups.remove_at(i)
@@ -629,8 +690,9 @@ func _check_pickup_contact() -> void:
 				_show_room_message("拾取%s：护盾+1" % reward_name, 1.8)
 			else:
 				shot_boost_timer = SHOT_BOOST_DURATION
+				wind_shot_charges = WIND_SHOT_CHARGES
 				shot_timer = minf(shot_timer, BOOSTED_SHOT_COOLDOWN)
-				_show_room_message("拾取%s：%.0f 秒内弹速提升" % [reward_name, SHOT_BOOST_DURATION], 1.8)
+				_show_room_message("拾取%s：%.0f 秒内可远程 %d 发" % [reward_name, SHOT_BOOST_DURATION, WIND_SHOT_CHARGES], 1.8)
 			last_reward_name = reward_name
 			_record_reward(reward_name)
 			_show_pickup_cue(_build_pickup_cue_text(reward_type, reward_name))
@@ -724,12 +786,23 @@ func _bullet_hits_wall(node: ColorRect) -> bool:
 	return false
 
 func _enemy_hits_wall(node: ColorRect) -> bool:
+	return _enemy_rect_hits_wall(Rect2(node.position, node.size))
+
+func _enemy_rect_hits_wall(enemy_rect: Rect2) -> bool:
 	var tree := get_tree()
 	if tree == null:
 		return false
-	var enemy_rect := Rect2(node.position, node.size)
 	for wall in tree.get_nodes_in_group("wall"):
 		if enemy_rect.intersects(Rect2(wall.position, wall.size)):
+			return true
+	return false
+
+func _enemy_rect_hits_hazard(enemy_rect: Rect2) -> bool:
+	for hazard in hazards:
+		var node: ColorRect = hazard.node
+		if not is_instance_valid(node):
+			continue
+		if enemy_rect.intersects(Rect2(node.position, node.size)):
 			return true
 	return false
 
@@ -750,11 +823,14 @@ func _spawn_shot_meter() -> void:
 	$CanvasLayer.add_child(shot_meter_fill)
 
 func _current_shot_cooldown() -> float:
-	return BOOSTED_SHOT_COOLDOWN if shot_boost_timer > 0.0 else BASE_SHOT_COOLDOWN
+	return BOOSTED_SHOT_COOLDOWN if _can_fire_wind_shot() else MELEE_COOLDOWN
+
+func _can_fire_wind_shot() -> bool:
+	return shot_boost_timer > 0.0 and wind_shot_charges > 0
 
 func _current_bullet_speed() -> float:
 	var speed_scale := 1.0 + 0.05 * float(clear_reward_stacks)
-	var boosted_scale := 1.25 if shot_boost_timer > 0.0 else 1.0
+	var boosted_scale := 1.18 if _can_fire_wind_shot() else 1.0
 	return BULLET_SPEED * boosted_scale * speed_scale
 
 func _grant_room_clear_reward() -> void:
@@ -1147,6 +1223,9 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 	message_timer = 0.0
 	room_message = ""
 	hazard_contact_timer = 0.0
+	shot_boost_timer = 0.0
+	wind_shot_charges = 0
+	room_spawn_guard_index = 0
 	bullets.clear()
 	melee_effects.clear()
 	enemies.clear()
@@ -1177,7 +1256,7 @@ func _load_room(room_index: int, is_first_room: bool) -> void:
 func _update_hud() -> void:
 	var cooldown := _current_shot_cooldown()
 	var charge_ratio := 1.0 - clampf(shot_timer / cooldown, 0.0, 1.0)
-	var attack_mode := "远程" if shot_boost_timer > 0.0 else "近战"
+	var attack_mode := "远程" if _can_fire_wind_shot() else "近战"
 	var charge := "%s就绪" % attack_mode if shot_timer <= 0.0 else "%s%d%%" % [attack_mode, roundi(charge_ratio * 100.0)]
 	hud_label.text = "取经状态"
 	hud_hp_value.text = _build_health_marks()
@@ -1189,6 +1268,8 @@ func _update_hud() -> void:
 	if shot_meter_fill != null:
 		shot_meter_fill.size.x = 240.0 * charge_ratio
 		shot_meter_fill.color = Color(0.36, 0.92, 0.48) if shot_timer <= 0.0 else Color(1.0, 0.76, 0.25)
+	_update_combat_status(charge_ratio)
+	_update_choice_status()
 	if message_timer > 0.0:
 		objective_label.text = room_message
 	elif not hazards.is_empty() and not doors_open and not ended:
@@ -1197,6 +1278,34 @@ func _update_hud() -> void:
 		objective_label.text = "近身斩妖。获得定风珠后可短暂远程攻击。"
 	elif doors_open and not ended:
 		objective_label.text = "房间已净，进入绿色传送门。"
+
+func _update_combat_status(charge_ratio: float) -> void:
+	if _can_fire_wind_shot():
+		combat_mode_label.text = "当前：远程 · 定风珠 %.0f 秒" % shot_boost_timer
+		combat_detail_label.text = "方向键发射灵弹；剩余 %d 发后回到近战" % wind_shot_charges
+		combat_accent.color = Color(0.36, 0.92, 0.72, 1)
+		combat_panel.color = Color(0.026, 0.07, 0.052, 0.9)
+	else:
+		var ready_text := "就绪" if shot_timer <= 0.0 else "蓄势 %d%%" % roundi(charge_ratio * 100.0)
+		combat_mode_label.text = "当前：近战 · %s" % ready_text
+		combat_detail_label.text = "方向键挥击；拾取定风珠后短时改为远程"
+		combat_accent.color = Color(0.36, 0.76, 0.9, 1)
+		combat_panel.color = Color(0.032, 0.044, 0.05, 0.88)
+
+func _update_choice_status() -> void:
+	if current_room_type == "rest":
+		choice_panel.color = Color(0.03, 0.048, 0.06, 0.9)
+		choice_accent.color = Color(0.28, 0.72, 0.9, 1)
+		choice_text_label.text = "休整二选一：触碰其一后，另一馈赠消散"
+		return
+	if _can_fire_wind_shot():
+		choice_panel.color = Color(0.03, 0.06, 0.05, 0.9)
+		choice_accent.color = Color(0.36, 0.92, 0.72, 1)
+		choice_text_label.text = "定风珠生效：剩余 %d 发远程灵弹" % wind_shot_charges
+		return
+	choice_panel.color = Color(0.03, 0.04, 0.048, 0.86)
+	choice_accent.color = Color(0.42, 0.72, 0.94, 1)
+	choice_text_label.text = "当前无临时法宝：默认方向键近战挥击"
 
 func _on_player_hurt() -> void:
 	_show_room_message("受伤：短暂无敌", 1.2)
@@ -1256,6 +1365,11 @@ func _set_ui_running_state(running: bool) -> void:
 	$CanvasLayer/RouteTitle.visible = running
 	route_map_root.visible = running
 	route_preview_label.visible = running
+	encounter_panel.visible = running
+	encounter_accent.visible = running
+	$CanvasLayer/EncounterTitle.visible = running
+	encounter_type_label.visible = running
+	encounter_hint_label.visible = running
 	reward_panel.visible = running
 	reward_accent.visible = running
 	$CanvasLayer/RewardTitle.visible = running
@@ -1265,6 +1379,15 @@ func _set_ui_running_state(running: bool) -> void:
 	loot_panel.visible = running
 	loot_title_label.visible = running
 	loot_list_label.visible = running
+	combat_panel.visible = running
+	combat_accent.visible = running
+	$CanvasLayer/CombatTitle.visible = running
+	combat_mode_label.visible = running
+	combat_detail_label.visible = running
+	choice_panel.visible = running
+	choice_accent.visible = running
+	$CanvasLayer/ChoiceTitle.visible = running
+	choice_text_label.visible = running
 	pickup_cue_label.visible = running and pickup_cue_timer > 0.0
 	$ExitHint.visible = running
 
@@ -1276,6 +1399,7 @@ func _start_run() -> void:
 	complete_overlay.visible = false
 	_update_route_preview()
 	_update_reward_panel()
+	_update_choice_status()
 	_set_ui_running_state(true)
 	_set_paused_state(false)
 	_show_room_message("试炼开始：清空房间，破除封印。", 1.6)
@@ -1286,6 +1410,7 @@ func _reset_run_state() -> void:
 	clear_reward_stacks = 0
 	shield_charges = 0
 	shot_boost_timer = 0.0
+	wind_shot_charges = 0
 	collected_rewards.clear()
 	last_reward_name = "无"
 	_update_loot_list()
@@ -1298,11 +1423,32 @@ func _update_room_info_panel(room_config: Dictionary) -> void:
 	var room_name := String(room_config.get("name", "未知试炼"))
 	var room_hint := String(room_config.get("hint", "清怪破印，稳住推进"))
 	var room_lore := String(room_config.get("lore", "古道漫漫，心定则路明"))
-	room_title_label.text = "试炼：%s" % room_name
-	room_progress_label.text = "进度 %d / %d" % [current_room_index + 1, room_templates.size()]
-	room_hint_label.text = "说明：%s" % room_hint
+	var room_type := String(room_config.get("type", "combat"))
+	var room_type_label := _get_room_type_label(room_type)
+	room_title_label.text = "第 %02d 关：%s" % [current_room_index + 1, room_name]
+	room_progress_label.text = "固定十关进度 %d / %d · %s" % [current_room_index + 1, room_templates.size(), room_type_label]
+	room_hint_label.text = "提示：%s" % room_hint
 	room_lore_label.text = "短句：%s" % room_lore
-	room_info_accent.color = Color(0.74, 0.56, 0.24, 1)
+	room_info_accent.color = _get_room_type_accent(room_type)
+	_update_encounter_panel(room_type)
+
+func _get_room_type_label(room_type: String) -> String:
+	if room_type == "rest":
+		return "宝物休整"
+	if room_type == "elite":
+		return "精英战"
+	if room_type == "boss":
+		return "妖王战"
+	return "普通战"
+
+func _get_room_type_accent(room_type: String) -> Color:
+	if room_type == "rest":
+		return Color(0.28, 0.72, 0.9, 1)
+	if room_type == "elite":
+		return Color(0.95, 0.46, 0.22, 1)
+	if room_type == "boss":
+		return Color(0.78, 0.38, 0.88, 1)
+	return Color(0.74, 0.56, 0.24, 1)
 
 func _format_run_time(seconds: float) -> String:
 	var total := maxi(0, int(seconds))
@@ -1349,7 +1495,7 @@ func _draw_route_map() -> void:
 	var points: Array[Vector2] = []
 	for i in range(total):
 		var column := i % columns
-		var row := int(i / columns)
+		var row := floori(float(i) / float(columns))
 		points.append(Vector2(start_x + step_x * float(column), start_y + row_gap * float(row)))
 	for i in range(points.size() - 1):
 		_add_route_link(points[i], points[i + 1], i < current_room_index or run_complete)
@@ -1386,6 +1532,15 @@ func _add_route_node(index: int, center: Vector2) -> void:
 	marker.add_theme_color_override("font_color", Color(0.98, 0.92, 0.76, 1))
 	route_map_root.add_child(marker)
 
+	var index_label := Label.new()
+	index_label.position = node.position + Vector2(0.0, 26.0)
+	index_label.size = node.size
+	index_label.text = "%02d" % (index + 1)
+	index_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	index_label.add_theme_font_size_override("font_size", 11)
+	index_label.add_theme_color_override("font_color", Color(0.74, 0.82, 0.9, 1))
+	route_map_root.add_child(index_label)
+
 func _get_route_node_color(room_type: String, is_current: bool, is_cleared: bool) -> Color:
 	if is_current:
 		return Color(0.95, 0.62, 0.18, 1)
@@ -1414,9 +1569,33 @@ func _get_route_node_mark(room_type: String, is_current: bool, is_cleared: bool)
 
 func _build_route_legend() -> String:
 	var current_name := "未知试炼"
+	var current_type := "combat"
 	if not room_templates.is_empty():
-		current_name = String(room_templates[current_room_index].get("name", current_name))
-	return "当前：%s / 宝=休整 精=精英 王=妖王" % current_name
+		var current_room := room_templates[current_room_index]
+		current_name = String(current_room.get("name", current_name))
+		current_type = String(current_room.get("type", current_type))
+	return "第 %d/%d 关：%s · %s" % [current_room_index + 1, room_templates.size(), current_name, _get_room_type_label(current_type)]
+
+func _update_encounter_panel(room_type: String) -> void:
+	encounter_accent.color = _get_room_type_accent(room_type)
+	if room_type == "boss":
+		encounter_panel.color = Color(0.07, 0.04, 0.075, 0.92)
+		encounter_type_label.text = "妖王战 · 高压阶段"
+		encounter_hint_label.text = "先保命再输出，留意冲刺与召妖提示。"
+		return
+	if room_type == "elite":
+		encounter_panel.color = Color(0.075, 0.045, 0.03, 0.92)
+		encounter_type_label.text = "精英战 · 节奏突进"
+		encounter_hint_label.text = "精英急袭前摇明显，横移拉开再反打。"
+		return
+	if room_type == "rest":
+		encounter_panel.color = Color(0.03, 0.055, 0.072, 0.92)
+		encounter_type_label.text = "宝物休整 · 无怪房"
+		encounter_hint_label.text = "二选一法宝，按路线短板补强本局能力。"
+		return
+	encounter_panel.color = Color(0.04, 0.035, 0.03, 0.9)
+	encounter_type_label.text = "普通战 · 清怪开门"
+	encounter_hint_label.text = "优先处理贴身威胁，再清远端目标。"
 
 func _build_pickup_cue_text(reward_type: String, reward_name: String) -> String:
 	if reward_type == "speed":
@@ -1443,7 +1622,7 @@ func _update_reward_panel() -> void:
 		reward_accent.color = Color(0.32, 0.72, 0.92, 1)
 		return
 
-	var shot_state := "临时" if shot_boost_timer > 0.0 else "未激活"
+	var shot_state := "临时 %d 发" % wind_shot_charges if _can_fire_wind_shot() else "未激活"
 	var speed_time := _get_player_speed_boost_time()
 	var speed_state := "临时" if speed_time > 0.0 else "未激活"
 	var shield_state := "可抵伤 %d 次" % shield_charges if shield_charges > 0 else "未持有"
